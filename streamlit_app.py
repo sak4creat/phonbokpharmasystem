@@ -316,17 +316,20 @@ else:
                     st.info(f"👤 ผู้บันทึกการเบิกจ่าย: **{st.session_state.user_email}**")
                     
                     if st.form_submit_button("✅ ยืนยันการเบิกจ่ายทั้งหมด", use_container_width=True):
-                        for data in dispense_data:
-                            new_qty = data['current_qty'] - data['dispense_qty']
-                            supabase.table("inventory").update({"qty": new_qty}).eq("id", data['inventory_id']).execute()
-                            supabase.table("transactions").insert({
-                                "medicine_id": data['medicine_id'], "action_type": "DISPENSE",
-                                "qty_change": -data['dispense_qty'], "lot_no": data['lot_no'],
-                                "user_name": st.session_state.user_email, "note": note
-                            }).execute()
-                        st.success("✅ บันทึกการเบิกจ่ายสำเร็จทั้งหมด!")
-                        time.sleep(1.5)
-                        st.rerun()
+                        try:
+                            for data in dispense_data:
+                                new_qty = data['current_qty'] - data['dispense_qty']
+                                supabase.table("inventory").update({"qty": new_qty}).eq("id", data['inventory_id']).execute()
+                                supabase.table("transactions").insert({
+                                    "medicine_id": data['medicine_id'], "action_type": "DISPENSE",
+                                    "qty_change": -data['dispense_qty'], "lot_no": data['lot_no'],
+                                    "user_name": st.session_state.user_email, "note": note
+                                }).execute()
+                            st.success("✅ บันทึกการเบิกจ่ายสำเร็จทั้งหมด!")
+                            time.sleep(1.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ เกิดข้อผิดพลาดจากฐานข้อมูล: {e}")
 
     elif menu == "📦 รับยาเข้า (Bulk)":
         st.header("📦 รับเวชภัณฑ์เข้าคลัง (ทีละหลายรายการ)")
@@ -357,16 +360,20 @@ else:
             st.info(f"👤 ผู้บันทึกการรับเข้า: **{st.session_state.user_email}**")
             
             if st.form_submit_button("📥 บันทึกรับเข้าทั้งหมด", use_container_width=True):
-                for data in receive_data:
-                    if data['lot_no']:
-                        supabase.table("inventory").insert(data).execute()
-                        supabase.table("transactions").insert({
-                            "medicine_id": data['medicine_id'], "action_type": "RECEIVE", "qty_change": data['qty'],
-                            "lot_no": data['lot_no'], "user_name": st.session_state.user_email, "note": "รับเข้า (Bulk)"
-                        }).execute()
-                st.success("✅ บันทึกรับเข้าสำเร็จทั้งหมด!")
-                time.sleep(1.5)
-                st.rerun()
+                try:
+                    for data in receive_data:
+                        if data['lot_no']:
+                            supabase.table("inventory").insert(data).execute()
+                            supabase.table("transactions").insert({
+                                "medicine_id": data['medicine_id'], "action_type": "RECEIVE", "qty_change": data['qty'],
+                                "lot_no": data['lot_no'], "user_name": st.session_state.user_email, "note": "รับเข้า (Bulk)"
+                            }).execute()
+                    st.success("✅ บันทึกรับเข้าสำเร็จทั้งหมด!")
+                    time.sleep(1.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล: {e}")
+                    st.info("💡 **วิธีแก้เบื้องต้น:**\n1. โปรดตรวจสอบว่าตาราง `inventory` ใน Supabase มีคอลัมน์ `mfg_date` (ชนิด DATE) แล้วหรือยัง\n2. คุณอาจกรอกรหัส Lot ที่เคยมีอยู่ในระบบแล้ว (ถ้าใน Supabase ตั้งค่าให้รหัส Lot ห้ามซ้ำ)")
 
     elif menu == "📝 ข้อมูลยา (Master)":
         st.header("📝 จัดการบัญชียาหลัก")

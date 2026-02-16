@@ -3,7 +3,6 @@ from supabase import create_client
 import pandas as pd
 import datetime
 import time
-import requests
 
 # --- 1. ตั้งค่าและเชื่อมต่อ (SETUP) ---
 st.set_page_config(page_title="ระบบคลังยา รพ.สต. โพนบก", layout="wide", page_icon="🏥")
@@ -66,27 +65,6 @@ def logout_user():
     st.session_state.user = None
     st.session_state.role = None
     st.rerun()
-
-def send_line_message(message):
-    try:
-        token = st.secrets["line"]["channel_access_token"]
-        to_id = st.secrets["line"]["target_id"]
-        url = "https://api.line.me/v2/bot/message/push"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}"
-        }
-        payload = {
-            "to": to_id,
-            "messages": [{"type": "text", "text": message}]
-        }
-        res = requests.post(url, headers=headers, json=payload)
-        if res.status_code == 200:
-            return True
-        else:
-            return False
-    except Exception as e:
-        return None
 
 # --- 3. ฟังก์ชันดึงข้อมูล ---
 def get_medicines():
@@ -193,26 +171,6 @@ else:
                 
                 st.divider()
                 
-                col_btn, _ = st.columns([1, 2])
-                with col_btn:
-                    if st.button("🤖 ให้บอทส่งรายงานเข้า LINE", use_container_width=True, type="primary"):
-                        msg = "\n🏥 รายงานคลังยา รพ.สต. โพนบก\n"
-                        if not low_stock.empty:
-                            msg += "\n📉 **ยาใกล้หมดสต๊อก (ต้องสั่งเพิ่ม):**\n"
-                            for _, r in low_stock.iterrows():
-                                msg += f"- {r['generic_name']} (เหลือ {int(r['qty'])} {r['unit']})\n"
-                        else: msg += "\n✅ สต๊อกยาเพียงพอทุกรายการ\n"
-                        if not near_exp.empty:
-                            msg += "\n🚨 **ยาใกล้หมดอายุ (< 6 เดือน):**\n"
-                            for _, r in near_exp.iterrows():
-                                exp_str = r['exp_date'].strftime('%d/%m/%Y')
-                                msg += f"- {r['generic_name']} (Lot: {r['lot_no']} หมด: {exp_str})\n"
-                        msg += f"\nผู้สรุปรายงาน: {st.session_state.user_email}"
-                        res = send_line_message(msg)
-                        if res is True: st.success("✅ บอทส่งแจ้งเตือนเข้า LINE สำเร็จ!")
-                        elif res is False: st.error("❌ ส่งไม่สำเร็จ กรุณาตรวจสอบ Token หรือ ID ใน Secrets")
-                        else: st.warning("⚠️ กรุณาตั้งค่า LINE Secrets ก่อนครับ")
-
                 col_l, col_r = st.columns(2)
                 with col_l:
                     st.markdown("### 📉 แจ้งเตือน: ยาใกล้หมดสต๊อก")
@@ -410,5 +368,90 @@ else:
                 time.sleep(1.5)
                 st.rerun()
 
-    # ----------------------------------------------------------------------
-    # 📝 ข้อมูลยา (Master) - อัปเดตเพิ่ม
+    elif menu == "📝 ข้อมูลยา (Master)":
+        st.header("📝 จัดการบัญชียาหลัก")
+        tab1, tab2, tab3 = st.tabs(["➕ เพิ่มรายการใหม่", "📋 รายการที่มีอยู่", "✏️ แก้ไข / ลบข้อมูลยา"])
+        
+        with tab1:
+            with st.form("new_med"):
+                c1, c2 = st.columns(2)
+                nid = c1.text_input("รหัสยา (เช่น DRUG009)")
+                nname = c2.text_input("ชื่อสามัญ (Generic Name)")
+                nunit = c1.text_input("หน่วยนับ (เช่น เม็ด, ขวด, หลอด)")
+                ncat = c2.selectbox("หมวดหมู่", ["ยาในบัญชี", "ยานอกบัญชี", "เวชภัณฑ์/วัสดุ"])
+                nmin = st.number_input("จุดสั่งซื้อ (Min Stock) เตือนเมื่อยาใกล้หมด", min_value=0, value=100)
+                
+                if st.form_submit_button("💾 เพิ่มข้อมูลยา", use_container_width=True):
+                    if nid and nname and nunit:
+                        try:
+                            supabase.table("medicines").insert({"id": nid, "generic_name": nname, "unit": nunit, "category": ncat, "min_stock": nmin, "is_active": True}).execute()
+                            st.success("เพิ่มข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
+                        except: st.error("❌ รหัสยาซ้ำ หรือกรอกข้อมูลไม่ถูกต้อง")
+                    else: st.warning("⚠️ กรุณากรอกรหัสยา ชื่อยา และหน่วยนับให้ครบถ้วน")
+                        
+        with tab2:
+            st.info("💡 แสดงเฉพาะรายการยาที่เปิดใช้งานอยู่ (Active)")
+            st.dataframe(get_medicines(), use_container_width=True)
+            
+        with tab3:
+            all_meds_data = supabase.table("medicines").select("*").execute().data
+            if all_meds_data:
+                all_meds = pd.DataFrame(all_meds_data)
+                
+                all_meds['display_name'] = all_meds['id'].astype(str) + " | " + all_meds['generic_name'].fillna('-ไม่มีชื่อยา-').astype(str)
+                
+                edit_choice = st.selectbox("🔍 ค้นหาและเลือกยาที่ต้องการแก้ไข หรือ ลบ", all_meds['display_name'])
+                
+                if edit_choice:
+                    selected_id = edit_choice.split(" | ")[0]
+                    med_info = all_meds[all_meds['id'] == selected_id].iloc[0]
+                    
+                    st.divider()
+                    
+                    with st.form("edit_med_form"):
+                        st.caption(f"รหัสยา (ID): **{selected_id}** (ไม่สามารถแก้ไขรหัสได้)")
+                        c1, c2 = st.columns(2)
+                        
+                        old_name = "" if pd.isna(med_info['generic_name']) else med_info['generic_name']
+                        e_name = c1.text_input("ชื่อสามัญ (Generic Name)", value=old_name)
+                        
+                        old_unit = "" if pd.isna(med_info['unit']) else med_info['unit']
+                        e_unit = c2.text_input("หน่วยนับ", value=old_unit)
+                        
+                        cat_options = ["ยาในบัญชี", "ยานอกบัญชี", "เวชภัณฑ์/วัสดุ"]
+                        try: cat_idx = cat_options.index(med_info['category'])
+                        except: cat_idx = 0
+                        e_cat = c1.selectbox("หมวดหมู่", cat_options, index=cat_idx)
+                        
+                        min_stock_val = 0 if pd.isna(med_info.get('min_stock')) else int(med_info.get('min_stock', 0))
+                        e_min = c2.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val)
+                        e_active = st.checkbox("✅ เปิดใช้งานรายการนี้ (สามารถนำไปรับ/เบิกได้ปกติ)", value=bool(med_info['is_active']))
+                        
+                        if st.form_submit_button("💾 บันทึกการแก้ไข", use_container_width=True):
+                            if e_name and e_unit:
+                                try:
+                                    supabase.table("medicines").update({"generic_name": e_name, "unit": e_unit, "category": e_cat, "min_stock": e_min, "is_active": e_active}).eq("id", selected_id).execute()
+                                    st.success(f"อัปเดตข้อมูลของ {selected_id} สำเร็จ!"); time.sleep(1); st.rerun()
+                                except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการอัปเดต: {e}")
+                            else: st.warning("⚠️ กรุณากรอกชื่อยาและหน่วยนับให้ครบถ้วน")
+                    
+                    st.divider()
+                    st.markdown("### 🗑️ ลบข้อมูล (Danger Zone)")
+                    st.warning("⚠️ แนะนำให้ใช้วิธี **'เอาเครื่องหมายถูกเปิดใช้งานออก'** แทนการลบ เพื่อเก็บประวัติไว้ตรวจสอบ \n\n (ระบบจะอนุญาตให้ลบถาวรได้ **เฉพาะรายการที่ไม่เคยมีประวัติรับ-จ่าย** เท่านั้น เพื่อป้องกันข้อมูลบัญชีผิดพลาด)")
+                    
+                    del_col1, del_col2 = st.columns([1, 1])
+                    with del_col1:
+                        confirm_del = st.checkbox("ยืนยันว่าต้องการลบรายการนี้ทิ้งถาวร", key="confirm_delete_box")
+                    with del_col2:
+                        if st.button("❌ ลบรายการยานี้ถาวร", type="primary", use_container_width=True):
+                            if confirm_del:
+                                try:
+                                    supabase.table("medicines").delete().eq("id", selected_id).execute()
+                                    st.success(f"ลบรายการยา {selected_id} ออกจากระบบเรียบร้อยแล้ว!")
+                                    time.sleep(1.5)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error("❌ ไม่สามารถลบได้! เนื่องจากยานี้เคยถูกทำรายการรับ/เบิกไปแล้ว (กรุณาใช้วิธีปิดใช้งานแทน)")
+                            else:
+                                st.error("กรุณาติ๊กเครื่องหมายถูกที่ 'ยืนยันว่าต้องการลบ' ก่อนกดปุ่มลบครับ")
+            else: st.info("📭 ยังไม่มีข้อมูลยาในระบบ")

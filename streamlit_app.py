@@ -126,7 +126,6 @@ else:
         if st.button("ออกจากระบบ", use_container_width=True): logout_user()
         st.divider()
 
-    # 🌟 เพิ่มเมนู สรุปยอดประจำเดือน
     menu_options = ["📊 แดชบอร์ด", "💊 เบิกจ่ายยา (Bulk)", "📦 รับยาเข้า (Bulk)", "📜 ประวัติรับ-จ่าย", "🗂️ สต๊อกการ์ด", "📈 สรุปยอดประจำเดือน", "📝 ข้อมูลยา (Master)"]
     if st.session_state.role == 'admin': menu_options.append("👑 Admin Panel")
     menu = st.sidebar.radio("📌 เมนูใช้งาน", menu_options)
@@ -261,7 +260,7 @@ else:
         except Exception as e: st.error(f"Error: {e}")
 
     # ----------------------------------------------------------------------
-    # 📈 สรุปยอดประจำเดือน (V15 - เมนูใหม่สำหรับทำรายงานบัญชี)
+    # 📈 สรุปยอดประจำเดือน (V16 - ปรับคอลัมน์และลบอิโมจิ)
     # ----------------------------------------------------------------------
     elif menu == "📈 สรุปยอดประจำเดือน":
         st.header("📈 สรุปยอดรับ-จ่าย ประจำเดือน")
@@ -273,7 +272,6 @@ else:
             df_trans['created_at_dt'] = pd.to_datetime(df_trans['created_at'], utc=True).dt.tz_convert('Asia/Bangkok')
             df_trans['ym'] = df_trans['created_at_dt'].dt.strftime('%Y-%m')
 
-            # หาเดือนทั้งหมดที่มีการเคลื่อนไหว
             all_months = df_trans['ym'].dropna().unique().tolist()
             all_months.sort(reverse=True)
 
@@ -284,51 +282,53 @@ else:
                 st.divider()
                 st.subheader(f"📊 รายงานประจำเดือน: {format_thai_month(selected_ym)}")
 
-                # กรองข้อมูลเฉพาะเดือนที่เลือก
                 df_month = df_trans[df_trans['ym'] == selected_ym]
 
-                # 1. คำนวณยอด รับเข้า (RECEIVE)
+                # 1. ยอด รับเข้า (RECEIVE)
                 df_recv = df_month[df_month['action_type'] == 'RECEIVE'].groupby('medicine_id')['qty_change'].sum().reset_index()
                 df_recv.rename(columns={'qty_change': 'receive_qty'}, inplace=True)
 
-                # 2. คำนวณยอด เบิกจ่าย (DISPENSE) แปลงค่าติดลบให้เป็นบวกเพื่อแสดงผล
+                # 2. ยอด เบิกจ่าย (DISPENSE)
                 df_disp = df_month[df_month['action_type'] == 'DISPENSE'].groupby('medicine_id')['qty_change'].sum().reset_index()
                 df_disp['qty_change'] = df_disp['qty_change'].abs()
                 df_disp.rename(columns={'qty_change': 'dispense_qty'}, inplace=True)
 
-                # 3. ดึงยอดคงเหลือปัจจุบันจาก Inventory
+                # 3. ยอดคงเหลือปัจจุบัน
                 inv = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
                 if not inv.empty:
                     inv_agg = inv.groupby('medicine_id')['qty'].sum().reset_index()
                 else:
                     inv_agg = pd.DataFrame(columns=['medicine_id', 'qty'])
 
-                # 4. รวมข้อมูลกับ Master ยา
+                # 4. รวมข้อมูลกับ Master ยา (เพิ่ม min_stock เข้ามาด้วย)
                 meds = get_medicines()
 
                 if not meds.empty:
                     # นำตารางมาต่อกัน
-                    report = pd.merge(meds[['id', 'generic_name', 'unit']], df_recv, left_on='id', right_on='medicine_id', how='left')
+                    report = pd.merge(meds[['id', 'generic_name', 'unit', 'min_stock']], df_recv, left_on='id', right_on='medicine_id', how='left')
                     report = pd.merge(report, df_disp, left_on='id', right_on='medicine_id', how='left')
                     report = pd.merge(report, inv_agg, left_on='id', right_on='medicine_id', how='left')
 
-                    # เติมค่าว่างด้วย 0 (รายการไหนไม่มีรับ/จ่าย จะได้เป็น 0)
+                    # เติมค่าว่างด้วย 0
                     report['receive_qty'] = report['receive_qty'].fillna(0).astype(int)
                     report['dispense_qty'] = report['dispense_qty'].fillna(0).astype(int)
                     report['qty'] = report['qty'].fillna(0).astype(int)
+                    report['min_stock'] = report['min_stock'].fillna(0).astype(int)
 
-                    # เลือกเฉพาะคอลัมน์ที่จะโชว์
-                    report_display = report[['generic_name', 'receive_qty', 'dispense_qty', 'qty', 'unit']].copy()
-                    report_display.columns = ['รายการยา', '📥 รับมา (ชิ้น)', '📤 จ่ายไป (ชิ้น)', '📦 คงเหลือปัจจุบัน (ชิ้น)', 'หน่วยนับ']
+                    # 🌟 จัดเรียงคอลัมน์และสร้างคอลัมน์ลำดับ
+                    report_display = report[['generic_name', 'unit', 'min_stock', 'receive_qty', 'dispense_qty', 'qty']].copy()
+                    
+                    # เพิ่มคอลัมน์ "ลำดับ" ไว้ตำแหน่งแรกสุด (index 0)
+                    report_display.insert(0, 'ลำดับ', range(1, len(report_display) + 1))
+                    
+                    # 🌟 เปลี่ยนชื่อคอลัมน์ (เอาอิโมจิออกทั้งหมดตามที่ขอ)
+                    report_display.columns = ['ลำดับ', 'รายการ', 'หน่วยนับ', 'จุดสั่งซื้อ', 'รับมา', 'เบิกจ่าย', 'คงเหลือ']
 
-                    # ให้ Index เริ่มที่ 1 แทน 0
-                    report_display.index = report_display.index + 1
+                    # แสดงตาราง (สั่งซ่อน Index อัตโนมัติ เพราะเรามีคอลัมน์ลำดับแล้ว)
+                    st.dataframe(report_display, use_container_width=True, hide_index=True)
 
-                    # แสดงตาราง
-                    st.dataframe(report_display, use_container_width=True)
-
-                    # 🌟 ฟังก์ชันดาวน์โหลด Excel (CSV)
-                    csv = report_display.to_csv(index=False).encode('utf-8-sig') # ใช้ utf-8-sig เพื่อให้ภาษาไทยไม่เพี้ยนใน Excel
+                    # ดาวน์โหลดไฟล์
+                    csv = report_display.to_csv(index=False).encode('utf-8-sig')
                     st.download_button(
                         label="📥 ดาวน์โหลดรายงาน (CSV)",
                         data=csv,

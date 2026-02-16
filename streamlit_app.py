@@ -9,11 +9,12 @@ st.set_page_config(page_title="ระบบคลังยา รพ.สต. โ
 
 st.markdown("""
 <style>
-    .stButton>button { border-radius: 20px; transition: all 0.3s ease; border: 1px solid #e0e0e0; }
+    .stButton>button { border-radius: 8px; transition: all 0.3s ease; border: 1px solid #e0e0e0; font-weight: bold; }
     .stButton>button:hover { transform: scale(1.02); border-color: #ff4b4b; color: #ff4b4b; }
-    [data-testid="stForm"] { border-radius: 15px; border: 1px solid #f0f2f6; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 2rem; }
-    [data-testid="stAlert"] { border-radius: 10px; }
+    [data-testid="stForm"] { border-radius: 10px; border: 1px solid #f0f2f6; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 2rem; }
+    [data-testid="stAlert"] { border-radius: 8px; }
     [data-testid="stMetricValue"] { color: #2e7bcf; }
+    .item-box { border: 1px solid #eee; padding: 15px; border-radius: 8px; margin-bottom: 10px; background-color: #fafafa;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -65,7 +66,9 @@ def get_inventory_view():
     meds = pd.DataFrame(supabase.table("medicines").select("id, generic_name, unit").execute().data)
     inv = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
     if inv.empty: return pd.DataFrame()
-    merged = pd.merge(inv, meds, left_on="medicine_id", right_on="id", how="left")
+    
+    # ✅ แก้บั๊ก KeyError: 'id' โดยการเติม _med ให้ id ของตารางยา
+    merged = pd.merge(inv, meds, left_on="medicine_id", right_on="id", how="left", suffixes=('', '_med'))
     return merged[merged['qty'] > 0]
 
 # --- 4. ส่วนหน้าจอ (FRONTEND) ---
@@ -91,7 +94,7 @@ else:
         if st.button("ออกจากระบบ", use_container_width=True): logout_user()
         st.divider()
 
-    menu_options = ["📊 แดชบอร์ด", "💊 เบิกจ่ายยา", "📦 รับยาเข้า", "📝 ข้อมูลยา (Master)"]
+    menu_options = ["📊 แดชบอร์ด", "💊 เบิกจ่ายยา (Bulk)", "📦 รับยาเข้า (Bulk)", "📝 ข้อมูลยา (Master)"]
     if st.session_state.role == 'admin': menu_options.append("👑 Admin Panel")
     menu = st.sidebar.radio("📌 เมนูใช้งาน", menu_options)
 
@@ -145,64 +148,119 @@ else:
             else: st.info("📭 คลังยาว่างเปล่า ยังไม่มีข้อมูลเวชภัณฑ์")
         except Exception as e: st.error(f"Error: {e}")
 
-    elif menu == "💊 เบิกจ่ายยา":
-        st.header("💊 เบิกจ่ายเวชภัณฑ์")
+    # ----------------------------------------------------------------------
+    # 💊 ระบบเบิกจ่ายยาแบบหลายรายการพร้อมกัน (BULK DISPENSE)
+    # ----------------------------------------------------------------------
+    elif menu == "💊 เบิกจ่ายยา (Bulk)":
+        st.header("💊 เบิกจ่ายเวชภัณฑ์ (ตะกร้าเบิก)")
         df_inv = get_inventory_view()
+        
         if not df_inv.empty:
-            drug_name = st.selectbox("🔍 ค้นหาชื่อยา", df_inv['generic_name'].unique())
-            lots = df_inv[df_inv['generic_name'] == drug_name].sort_values("exp_date")
-            st.caption(f"รายการ Lot ของ {drug_name} (ระบบเรียงตามวันหมดอายุให้แล้ว)")
+            # สร้างข้อความโชว์ใน Dropdown ให้เลือกง่ายๆ
+            df_inv['display_label'] = df_inv['generic_name'] + " | Lot: " + df_inv['lot_no'] + " | หมดอายุ: " + df_inv['exp_date'].astype(str) + " (เหลือ " + df_inv['qty'].astype(str) + " " + df_inv['unit'] + ")"
             
-            for idx, row in lots.iterrows():
-                # ดึงข้อมูลวันผลิตมาโชว์ (ถ้าเก่าที่ไม่มีข้อมูลจะขึ้น None)
-                mfg_text = row.get('mfg_date', 'ไม่ระบุ') 
+            st.info("💡 ท่านสามารถคลิกเลือกยาได้หลายรายการพร้อมกัน เพื่อเบิกในครั้งเดียว")
+            
+            # ระบบเลือกยาหลายตัว
+            selected_labels = st.multiselect("🔍 ค้นหาและเลือกรายการยา (เลือกได้มากกว่า 1 ล็อต)", df_inv['display_label'].tolist())
+            
+            if selected_labels:
+                st.divider()
+                st.subheader("🛒 ระบุจำนวนที่ต้องการเบิก")
                 
-                with st.expander(f"📦 Lot: {row['lot_no']} | ผลิต: {mfg_text} | หมดอายุ: {row['exp_date']} | คงเหลือ: {row['qty']} {row['unit']}", expanded=True):
-                    with st.form(f"dispense_{row['id']}"):
-                        amount = st.number_input(f"จำนวนที่ต้องการเบิก ({row['unit']})", min_value=1, max_value=int(row['qty']))
-                        note = st.text_input("หมายเหตุ", value="จ่ายหน้างาน")
-                        if st.form_submit_button("✅ ยืนยันจ่ายยา", use_container_width=True):
-                            new_q = int(row['qty']) - amount
-                            supabase.table("inventory").update({"qty": new_q}).eq("id", row['id']).execute()
+                with st.form("bulk_dispense_form"):
+                    dispense_data = []
+                    
+                    # วนลูปสร้างช่องกรอกจำนวนตามที่เลือกมา
+                    for i, label in enumerate(selected_labels):
+                        row = df_inv[df_inv['display_label'] == label].iloc[0]
+                        st.markdown(f'<div class="item-box">', unsafe_allow_html=True)
+                        
+                        col1, col2 = st.columns([3, 1])
+                        with col1:
+                            st.markdown(f"**{row['generic_name']}**")
+                            st.caption(f"Lot: `{row['lot_no']}` | คงเหลือ: {row['qty']} {row['unit']}")
+                        with col2:
+                            # ใส่ key เป็น i เพื่อไม่ให้ชื่อซ้ำกัน
+                            amount = st.number_input("จำนวนที่เบิก", min_value=1, max_value=int(row['qty']), key=f"disp_{i}")
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
+                        
+                        dispense_data.append({
+                            'inventory_id': row['id'], 
+                            'medicine_id': row['medicine_id'],
+                            'lot_no': row['lot_no'],
+                            'current_qty': int(row['qty']),
+                            'dispense_qty': amount
+                        })
+                        
+                    note = st.text_input("หมายเหตุ (เช่น เบิกให้ ER, รพ.สต.เครือข่าย)", value="จ่ายหน้างาน")
+                    
+                    if st.form_submit_button("✅ ยืนยันการเบิกจ่ายทั้งหมด", use_container_width=True):
+                        # อัปเดตฐานข้อมูลทีละรายการในตะกร้า
+                        for data in dispense_data:
+                            new_qty = data['current_qty'] - data['dispense_qty']
+                            supabase.table("inventory").update({"qty": new_qty}).eq("id", data['inventory_id']).execute()
                             supabase.table("transactions").insert({
-                                "medicine_id": row['medicine_id'], "action_type": "DISPENSE",
-                                "qty_change": -amount, "lot_no": row['lot_no'],
+                                "medicine_id": data['medicine_id'], "action_type": "DISPENSE",
+                                "qty_change": -data['dispense_qty'], "lot_no": data['lot_no'],
                                 "user_name": st.session_state.user_email, "note": note
                             }).execute()
-                            st.success("บันทึกเบิกจ่ายสำเร็จ!")
-                            time.sleep(1)
-                            st.rerun()
+                            
+                        st.success("✅ บันทึกการเบิกจ่ายสำเร็จทั้งหมด!")
+                        time.sleep(1.5)
+                        st.rerun()
 
-    elif menu == "📦 รับยาเข้า":
-        st.header("📦 รับเวชภัณฑ์เข้าคลัง")
+    # ----------------------------------------------------------------------
+    # 📦 ระบบรับยาเข้าแบบหลายรายการพร้อมกัน (BULK RECEIVE)
+    # ----------------------------------------------------------------------
+    elif menu == "📦 รับยาเข้า (Bulk)":
+        st.header("📦 รับเวชภัณฑ์เข้าคลัง (ทีละหลายรายการ)")
         meds = get_medicines()
+        med_options = meds['id'] + " | " + meds['generic_name'] + " (" + meds['unit'] + ")"
         
-        with st.form("recv_form"):
-            # ดึงหน่วยนับมาโชว์ในวงเล็บของชื่อยา
-            options = meds['id'] + " | " + meds['generic_name'] + " (" + meds['unit'] + ")"
-            d_choice = st.selectbox("เลือกรายการยา", options)
+        # เลือกว่าจะรับเข้ากี่ตัว
+        num_items = st.number_input("🔢 จำนวนรายการยาที่ต้องการรับเข้าพร้อมกัน", min_value=1, max_value=20, value=1)
+        st.divider()
+        
+        with st.form("bulk_receive_form"):
+            receive_data = []
             
-            c1, c2, c3 = st.columns(3)
-            lot = c1.text_input("รหัส Lot.")
-            mfg = c2.date_input("วันผลิต (MFG)")
-            exp = c3.date_input("วันหมดอายุ (EXP)")
-            
-            # หาหน่วยนับที่เลือก เพื่อไปใส่ท้ายช่องจำนวน
-            selected_id = d_choice.split(" | ")[0]
-            selected_unit = meds[meds['id'] == selected_id]['unit'].values[0]
-            
-            qty = st.number_input(f"จำนวนที่รับเข้า ({selected_unit})", min_value=1)
-            
-            if st.form_submit_button("📥 บันทึกรับเข้า", use_container_width=True):
-                supabase.table("inventory").insert({
-                    "medicine_id": selected_id, "lot_no": lot, 
+            # วนลูปสร้างฟอร์มตามจำนวนที่เลือกระบุไว้
+            for i in range(int(num_items)):
+                st.markdown(f"**รายการที่ {i+1}**")
+                c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
+                
+                with c1: d_choice = st.selectbox("เลือกยา", med_options, key=f"med_{i}")
+                with c2: lot = st.text_input("รหัส Lot", key=f"lot_{i}")
+                with c3: mfg = st.date_input("วันผลิต", key=f"mfg_{i}")
+                with c4: exp = st.date_input("วันหมดอายุ", key=f"exp_{i}")
+                
+                # หาหน่วยนับ
+                selected_id = d_choice.split(" | ")[0]
+                selected_unit = meds[meds['id'] == selected_id]['unit'].values[0]
+                qty = st.number_input(f"จำนวนที่รับเข้า ({selected_unit})", min_value=1, key=f"qty_{i}")
+                
+                st.markdown("---") # เส้นคั่นแต่ละรายการ
+                
+                receive_data.append({
+                    "medicine_id": selected_id, "lot_no": lot,
                     "mfg_date": str(mfg), "exp_date": str(exp), "qty": qty
-                }).execute()
-                supabase.table("transactions").insert({
-                    "medicine_id": selected_id, "action_type": "RECEIVE", "qty_change": qty,
-                    "lot_no": lot, "user_name": st.session_state.user_email, "note": "รับเข้าปกติ"
-                }).execute()
-                st.success("บันทึกรับเข้าสำเร็จ!")
+                })
+                
+            if st.form_submit_button("📥 บันทึกรับเข้าทั้งหมด", use_container_width=True):
+                # บันทึกทีละรายการ
+                for data in receive_data:
+                    if data['lot_no']: # เช็คว่ากรอก Lot ไหม
+                        supabase.table("inventory").insert(data).execute()
+                        supabase.table("transactions").insert({
+                            "medicine_id": data['medicine_id'], "action_type": "RECEIVE", "qty_change": data['qty'],
+                            "lot_no": data['lot_no'], "user_name": st.session_state.user_email, "note": "รับเข้า (Bulk)"
+                        }).execute()
+                        
+                st.success("✅ บันทึกรับเข้าสำเร็จทั้งหมด!")
+                time.sleep(1.5)
+                st.rerun()
 
     elif menu == "📝 ข้อมูลยา (Master)":
         st.header("📝 จัดการบัญชียาหลัก")

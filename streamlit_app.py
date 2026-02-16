@@ -71,15 +71,11 @@ def get_inventory_view():
     return merged[merged['qty'] > 0]
 
 def get_transactions_view():
-    # ดึงประวัติรายการทั้งหมด เรียงจากล่าสุดไปเก่าสุด
     trans_response = supabase.table("transactions").select("*").order("created_at", desc=True).execute()
     meds_response = supabase.table("medicines").select("id, generic_name, unit").execute()
-    
     trans = pd.DataFrame(trans_response.data)
     meds = pd.DataFrame(meds_response.data)
-    
     if trans.empty: return pd.DataFrame()
-    
     merged = pd.merge(trans, meds, left_on="medicine_id", right_on="id", how="left", suffixes=('', '_med'))
     return merged
 
@@ -106,7 +102,6 @@ else:
         if st.button("ออกจากระบบ", use_container_width=True): logout_user()
         st.divider()
 
-    # เพิ่มเมนูใหม่ "ประวัติรับ-จ่าย"
     menu_options = ["📊 แดชบอร์ด", "💊 เบิกจ่ายยา (Bulk)", "📦 รับยาเข้า (Bulk)", "📜 ประวัติรับ-จ่าย", "📝 ข้อมูลยา (Master)"]
     if st.session_state.role == 'admin': menu_options.append("👑 Admin Panel")
     menu = st.sidebar.radio("📌 เมนูใช้งาน", menu_options)
@@ -162,48 +157,100 @@ else:
         except Exception as e: st.error(f"Error: {e}")
 
     # ----------------------------------------------------------------------
-    # 📜 ประวัติรับ-จ่าย (Transaction History Dashboard) - ฟังก์ชันใหม่!
+    # 📜 ประวัติรับ-จ่าย (V6 - มี Stock Card แยกรายตัว)
     # ----------------------------------------------------------------------
     elif menu == "📜 ประวัติรับ-จ่าย":
         st.header("📜 ประวัติการรับและเบิกจ่ายเวชภัณฑ์")
-        st.caption("บันทึกการเคลื่อนไหวของคลังยาทั้งหมด (เรียงจากล่าสุด)")
         
-        df_trans = get_transactions_view()
+        tab_history, tab_stockcard = st.tabs(["ประวัติรวมทั้งหมด (All History)", "🗂️ สต๊อกการ์ดแยกรายตัว (Stock Card)"])
         
-        if not df_trans.empty:
-            # ปรับแต่งวันที่และเวลาให้อ่านง่าย (แปลงเป็นเวลาไทย)
-            df_trans['created_at'] = pd.to_datetime(df_trans['created_at'], utc=True).dt.tz_convert('Asia/Bangkok').dt.strftime('%d/%m/%Y %H:%M:%S')
-            
-            # แปลง Action Type เป็นภาษาไทย
-            df_trans['action_type_th'] = df_trans['action_type'].map({
-                'RECEIVE': '📥 รับเข้า',
-                'DISPENSE': '📤 เบิกจ่าย',
-                'INITIAL': 'ตั้งต้น'
-            }).fillna(df_trans['action_type'])
-            
-            # ตัวกรองข้อมูล (Filter)
-            filter_col1, filter_col2 = st.columns([1, 2])
-            with filter_col1:
-                filter_action = st.radio("ตัวกรองประเภท:", ["แสดงทั้งหมด", "📥 เฉพาะรับเข้า", "📤 เฉพาะเบิกจ่าย"], horizontal=True)
-            
-            # ใช้ตัวกรอง
-            if filter_action == "📥 เฉพาะรับเข้า":
-                df_display = df_trans[df_trans['action_type'] == 'RECEIVE']
-            elif filter_action == "📤 เฉพาะเบิกจ่าย":
-                df_display = df_trans[df_trans['action_type'] == 'DISPENSE']
+        # --- TAB 1: ประวัติรวม ---
+        with tab_history:
+            st.caption("บันทึกการเคลื่อนไหวของคลังยาทั้งหมด (เรียงจากล่าสุด)")
+            df_trans = get_transactions_view()
+            if not df_trans.empty:
+                df_trans['created_at'] = pd.to_datetime(df_trans['created_at'], utc=True).dt.tz_convert('Asia/Bangkok').dt.strftime('%d/%m/%Y %H:%M:%S')
+                df_trans['action_type_th'] = df_trans['action_type'].map({'RECEIVE': '📥 รับเข้า', 'DISPENSE': '📤 เบิกจ่าย', 'INITIAL': 'ตั้งต้น'}).fillna(df_trans['action_type'])
+                
+                filter_col1, filter_col2 = st.columns([1, 2])
+                with filter_col1:
+                    filter_action = st.radio("ตัวกรองประเภท:", ["แสดงทั้งหมด", "📥 เฉพาะรับเข้า", "📤 เฉพาะเบิกจ่าย"], horizontal=True)
+                
+                if filter_action == "📥 เฉพาะรับเข้า": df_display = df_trans[df_trans['action_type'] == 'RECEIVE']
+                elif filter_action == "📤 เฉพาะเบิกจ่าย": df_display = df_trans[df_trans['action_type'] == 'DISPENSE']
+                else: df_display = df_trans
+                
+                cols_to_show = ['created_at', 'action_type_th', 'generic_name', 'lot_no', 'qty_change', 'unit', 'user_name', 'note']
+                df_display = df_display[cols_to_show]
+                df_display.columns = ['วัน-เวลา', 'ประเภท', 'รายการยา', 'เลข Lot', 'จำนวน (+/-)', 'หน่วย', 'ผู้บันทึก', 'หมายเหตุ']
+                
+                st.dataframe(df_display, use_container_width=True, hide_index=True)
             else:
-                df_display = df_trans
+                st.info("📭 ยังไม่มีประวัติการทำรายการในระบบ")
+
+        # --- TAB 2: สต๊อกการ์ด (รายตัว) ---
+        with tab_stockcard:
+            st.subheader("🗂️ บัญชีคุมสินค้าคงคลัง (Stock Card)")
+            meds = get_medicines()
             
-            # เลือกคอลัมน์ที่จะแสดง
-            cols_to_show = ['created_at', 'action_type_th', 'generic_name', 'lot_no', 'qty_change', 'unit', 'user_name', 'note']
-            df_display = df_display[cols_to_show]
-            
-            # เปลี่ยนชื่อหัวคอลัมน์ให้สวยงาม
-            df_display.columns = ['วัน-เวลา (ไทย)', 'ประเภท', 'รายการยา', 'เลข Lot', 'จำนวน (+/-)', 'หน่วย', 'ผู้ทำรายการ', 'หมายเหตุ']
-            
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
-        else:
-            st.info("📭 ยังไม่มีประวัติการทำรายการในระบบ")
+            if not meds.empty:
+                med_options = meds['id'] + " | " + meds['generic_name'] + " (" + meds['unit'] + ")"
+                selected_med = st.selectbox("🔍 ค้นหาและเลือกรายการยาที่ต้องการดูประวัติ", med_options)
+                
+                selected_id = selected_med.split(" | ")[0]
+                selected_name = selected_med.split(" | ")[1].split(" (")[0]
+                selected_unit = meds[meds['id'] == selected_id]['unit'].values[0]
+                
+                # ดึงประวัติของยาตัวนี้เรียงตาม "เวลาที่เกิดก่อน" ไป "หลัง" (เพื่อคำนวณยอดยกไป)
+                t_res = supabase.table("transactions").select("*").eq("medicine_id", selected_id).order("created_at", ascending=True).execute()
+                df_t = pd.DataFrame(t_res.data)
+                
+                # ดึงข้อมูลวันหมดอายุจากตาราง Inventory
+                i_res = supabase.table("inventory").select("lot_no, exp_date, qty").eq("medicine_id", selected_id).execute()
+                df_i = pd.DataFrame(i_res.data)
+
+                if not df_t.empty:
+                    # นำวันหมดอายุมาเชื่อมกับประวัติ
+                    if not df_i.empty:
+                        df_i_unique = df_i.drop_duplicates(subset=['lot_no'])[['lot_no', 'exp_date']]
+                        df_t = pd.merge(df_t, df_i_unique, on='lot_no', how='left')
+                    else:
+                        df_t['exp_date'] = '-'
+
+                    # 🌟 คำนวณยอดคงเหลือสะสม (Running Balance) 🌟
+                    df_t['running_balance'] = df_t['qty_change'].cumsum()
+                    
+                    # สลับให้รายการ "ล่าสุด" ขึ้นด้านบน (เพื่อให้อ่านง่าย)
+                    df_t = df_t.sort_values(by='created_at', ascending=False)
+                    
+                    # จัดฟอร์แมตวันที่
+                    df_t['created_at'] = pd.to_datetime(df_t['created_at'], utc=True).dt.tz_convert('Asia/Bangkok').dt.strftime('%d/%m/%Y %H:%M')
+                    df_t['action_type_th'] = df_t['action_type'].map({'RECEIVE': '📥 รับเข้า', 'DISPENSE': '📤 เบิกจ่าย', 'INITIAL': 'ตั้งต้น'}).fillna(df_t['action_type'])
+                    
+                    # เลือกคอลัมน์แสดงผล
+                    cols = ['created_at', 'action_type_th', 'lot_no', 'exp_date', 'qty_change', 'running_balance', 'user_name', 'note']
+                    df_show = df_t[cols].copy()
+                    df_show.columns = ['วัน-เวลา', 'ประเภท', 'เลข Lot', 'วันหมดอายุ', 'จำนวนรับ/จ่าย', f'ยอดคงเหลือ ({selected_unit})', 'ผู้บันทึก', 'หมายเหตุ']
+                    
+                    st.markdown(f"**ประวัติความเคลื่อนไหว: {selected_name}**")
+                    st.dataframe(df_show, use_container_width=True, hide_index=True)
+                else:
+                    st.info(f"📭 ยังไม่มีประวัติการรับ-จ่าย ของยา {selected_name}")
+
+                # สรุปยอดคงเหลือปัจจุบัน แยกตาม Lot
+                st.divider()
+                st.subheader(f"📦 สรุปยอดคงเหลือปัจจุบัน")
+                if not df_i.empty:
+                    # กรองเฉพาะ Lot ที่ยอดมากกว่า 0
+                    df_i_active = df_i[df_i['qty'] > 0]
+                    if not df_i_active.empty:
+                        total_current = df_i_active['qty'].sum()
+                        st.metric(f"รวมทั้งสิ้น ({selected_name})", f"{total_current:,} {selected_unit}")
+                        st.dataframe(df_i_active[['lot_no', 'exp_date', 'qty']].rename(columns={'lot_no': 'เลข Lot', 'exp_date': 'วันหมดอายุ', 'qty': f'คงเหลือ ({selected_unit})'}), hide_index=True)
+                    else:
+                        st.warning("ยอดยาในคลังเป็น 0")
+                else:
+                    st.warning("ไม่มีข้อมูลในคลัง (ยอดยกเป็น 0)")
 
     elif menu == "💊 เบิกจ่ายยา (Bulk)":
         st.header("💊 เบิกจ่ายเวชภัณฑ์ (ตะกร้าเบิก)")
@@ -245,8 +292,6 @@ else:
                         })
                         
                     note = st.text_input("หมายเหตุ (เช่น เบิกให้ ER, รพ.สต.เครือข่าย)", value="จ่ายหน้างาน")
-                    
-                    # ✅ เพิ่มการแสดงชื่อผู้เบิกอัตโนมัติ
                     st.info(f"👤 ผู้บันทึกการเบิกจ่าย: **{st.session_state.user_email}**")
                     
                     if st.form_submit_button("✅ ยืนยันการเบิกจ่ายทั้งหมด", use_container_width=True):
@@ -294,7 +339,6 @@ else:
                     "mfg_date": str(mfg), "exp_date": str(exp), "qty": qty
                 })
                 
-            # ✅ เพิ่มการแสดงชื่อผู้รับเข้าอัตโนมัติ
             st.info(f"👤 ผู้บันทึกการรับเข้า: **{st.session_state.user_email}**")
             
             if st.form_submit_button("📥 บันทึกรับเข้าทั้งหมด", use_container_width=True):
@@ -310,9 +354,6 @@ else:
                 time.sleep(1.5)
                 st.rerun()
 
-    # ----------------------------------------------------------------------
-    # 📝 จัดการบัญชียาหลัก 
-    # ----------------------------------------------------------------------
     elif menu == "📝 ข้อมูลยา (Master)":
         st.header("📝 จัดการบัญชียาหลัก")
         

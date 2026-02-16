@@ -71,6 +71,7 @@ def get_inventory_view():
     return merged[merged['qty'] > 0]
 
 def get_transactions_view():
+    # ✅ ใช้คำสั่ง desc=True แทน
     trans_response = supabase.table("transactions").select("*").order("created_at", desc=True).execute()
     meds_response = supabase.table("medicines").select("id, generic_name, unit").execute()
     trans = pd.DataFrame(trans_response.data)
@@ -157,14 +158,13 @@ else:
         except Exception as e: st.error(f"Error: {e}")
 
     # ----------------------------------------------------------------------
-    # 📜 ประวัติรับ-จ่าย (V6 - มี Stock Card แยกรายตัว)
+    # 📜 ประวัติรับ-จ่าย (Stock Card)
     # ----------------------------------------------------------------------
     elif menu == "📜 ประวัติรับ-จ่าย":
         st.header("📜 ประวัติการรับและเบิกจ่ายเวชภัณฑ์")
         
         tab_history, tab_stockcard = st.tabs(["ประวัติรวมทั้งหมด (All History)", "🗂️ สต๊อกการ์ดแยกรายตัว (Stock Card)"])
         
-        # --- TAB 1: ประวัติรวม ---
         with tab_history:
             st.caption("บันทึกการเคลื่อนไหวของคลังยาทั้งหมด (เรียงจากล่าสุด)")
             df_trans = get_transactions_view()
@@ -188,7 +188,6 @@ else:
             else:
                 st.info("📭 ยังไม่มีประวัติการทำรายการในระบบ")
 
-        # --- TAB 2: สต๊อกการ์ด (รายตัว) ---
         with tab_stockcard:
             st.subheader("🗂️ บัญชีคุมสินค้าคงคลัง (Stock Card)")
             meds = get_medicines()
@@ -201,33 +200,25 @@ else:
                 selected_name = selected_med.split(" | ")[1].split(" (")[0]
                 selected_unit = meds[meds['id'] == selected_id]['unit'].values[0]
                 
-                # ดึงประวัติของยาตัวนี้เรียงตาม "เวลาที่เกิดก่อน" ไป "หลัง" (เพื่อคำนวณยอดยกไป)
-                t_res = supabase.table("transactions").select("*").eq("medicine_id", selected_id).order("created_at", ascending=True).execute()
+                # ✅ แก้ไขบั๊กตรงนี้: ใช้ desc=False แทนคำสั่งเดิม
+                t_res = supabase.table("transactions").select("*").eq("medicine_id", selected_id).order("created_at", desc=False).execute()
                 df_t = pd.DataFrame(t_res.data)
                 
-                # ดึงข้อมูลวันหมดอายุจากตาราง Inventory
                 i_res = supabase.table("inventory").select("lot_no, exp_date, qty").eq("medicine_id", selected_id).execute()
                 df_i = pd.DataFrame(i_res.data)
 
                 if not df_t.empty:
-                    # นำวันหมดอายุมาเชื่อมกับประวัติ
                     if not df_i.empty:
                         df_i_unique = df_i.drop_duplicates(subset=['lot_no'])[['lot_no', 'exp_date']]
                         df_t = pd.merge(df_t, df_i_unique, on='lot_no', how='left')
                     else:
                         df_t['exp_date'] = '-'
 
-                    # 🌟 คำนวณยอดคงเหลือสะสม (Running Balance) 🌟
                     df_t['running_balance'] = df_t['qty_change'].cumsum()
-                    
-                    # สลับให้รายการ "ล่าสุด" ขึ้นด้านบน (เพื่อให้อ่านง่าย)
                     df_t = df_t.sort_values(by='created_at', ascending=False)
-                    
-                    # จัดฟอร์แมตวันที่
                     df_t['created_at'] = pd.to_datetime(df_t['created_at'], utc=True).dt.tz_convert('Asia/Bangkok').dt.strftime('%d/%m/%Y %H:%M')
                     df_t['action_type_th'] = df_t['action_type'].map({'RECEIVE': '📥 รับเข้า', 'DISPENSE': '📤 เบิกจ่าย', 'INITIAL': 'ตั้งต้น'}).fillna(df_t['action_type'])
                     
-                    # เลือกคอลัมน์แสดงผล
                     cols = ['created_at', 'action_type_th', 'lot_no', 'exp_date', 'qty_change', 'running_balance', 'user_name', 'note']
                     df_show = df_t[cols].copy()
                     df_show.columns = ['วัน-เวลา', 'ประเภท', 'เลข Lot', 'วันหมดอายุ', 'จำนวนรับ/จ่าย', f'ยอดคงเหลือ ({selected_unit})', 'ผู้บันทึก', 'หมายเหตุ']
@@ -237,11 +228,9 @@ else:
                 else:
                     st.info(f"📭 ยังไม่มีประวัติการรับ-จ่าย ของยา {selected_name}")
 
-                # สรุปยอดคงเหลือปัจจุบัน แยกตาม Lot
                 st.divider()
                 st.subheader(f"📦 สรุปยอดคงเหลือปัจจุบัน")
                 if not df_i.empty:
-                    # กรองเฉพาะ Lot ที่ยอดมากกว่า 0
                     df_i_active = df_i[df_i['qty'] > 0]
                     if not df_i_active.empty:
                         total_current = df_i_active['qty'].sum()

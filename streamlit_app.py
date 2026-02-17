@@ -53,7 +53,7 @@ def login_user(email, password):
                 st.session_state.user = response.user
                 st.session_state.role = profile.data[0]['role']
                 st.session_state.user_email = email
-                # 🌟 ดึงชื่อ-สกุลมาเก็บในระบบ (ถ้าไม่มีให้ใช้อีเมลแทนก่อน)
+                
                 saved_name = profile.data[0].get('full_name')
                 st.session_state.full_name = saved_name if saved_name else email
                 
@@ -112,7 +112,7 @@ if not st.session_state.user:
         with tab_register:
             with st.form("register_form"):
                 st.info("💡 สมัครสมาชิกใหม่ แล้วรอผู้ดูแลระบบอนุมัติเพื่อเข้าใช้งาน")
-                reg_name = st.text_input("ชื่อ - นามสกุล (สำหรับบันทึกในประวัติรับ-จ่าย)")
+                reg_name = st.text_input("ชื่อ - นามสกุล")
                 reg_email = st.text_input("อีเมล")
                 reg_password = st.text_input("รหัสผ่าน (ขั้นต่ำ 6 ตัวอักษร)", type="password")
                 if st.form_submit_button("สมัครสมาชิก", use_container_width=True):
@@ -120,7 +120,6 @@ if not st.session_state.user:
                         try:
                             res = supabase.auth.sign_up({"email": reg_email, "password": reg_password})
                             if res.user:
-                                # พยายามอัปเดตชื่อ-สกุลลงฐานข้อมูล
                                 try:
                                     supabase.table("profiles").update({"full_name": reg_name}).eq("id", res.user.id).execute()
                                 except: pass
@@ -133,7 +132,6 @@ if not st.session_state.user:
 else:
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/3063/3063176.png", width=60)
-        # 🌟 โชว์ชื่อ-สกุล ในแถบด้านซ้าย
         display_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
         st.write(f"👤 **{display_name}**")
         st.caption(f"✉️ {st.session_state.user_email}")
@@ -166,7 +164,6 @@ else:
             profiles = pd.DataFrame(supabase.table("profiles").select("*").execute().data)
             if not profiles.empty:
                 profiles['status'] = profiles['is_approved'].map({True: 'อนุมัติแล้ว', False: 'รออนุมัติ'})
-                # จัดเรียงคอลัมน์โชว์ชื่อ
                 cols_to_show = ['email', 'full_name', 'role', 'status', 'created_at']
                 existing_cols = [c for c in cols_to_show if c in profiles.columns]
                 st.dataframe(profiles[existing_cols], use_container_width=True)
@@ -188,7 +185,7 @@ else:
         with tab_add:
             st.subheader("สร้างบัญชีผู้ใช้งานใหม่")
             with st.form("admin_add_user"):
-                new_name = st.text_input("ชื่อ - นามสกุล (สำหรับบันทึกในประวัติ)")
+                new_name = st.text_input("ชื่อ - นามสกุล")
                 new_email = st.text_input("อีเมลผู้ใช้งานใหม่")
                 new_password = st.text_input("รหัสผ่าน (ขั้นต่ำ 6 ตัวอักษร)", type="password")
                 new_role = st.selectbox("สิทธิ์การใช้งาน", ["staff", "admin"])
@@ -499,7 +496,6 @@ else:
                         })
                         
                     note = st.text_input("หมายเหตุ (เช่น เบิกให้แผนก ER, รพ.สต.เครือข่าย)", value="จ่ายหน้างาน")
-                    # 🌟 ใช้ชื่อ-สกุล ในการบันทึก
                     recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
                     st.caption(f"ผู้บันทึกการเบิกจ่าย: {recorder_name}")
                     
@@ -548,7 +544,6 @@ else:
                     "mfg_date": str(mfg), "exp_date": str(exp), "qty": qty
                 })
                 
-            # 🌟 ใช้ชื่อ-สกุล ในการบันทึก
             recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
             st.caption(f"ผู้บันทึกการรับเข้า: {recorder_name}")
             

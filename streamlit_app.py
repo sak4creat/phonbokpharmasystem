@@ -35,6 +35,7 @@ supabase = init_connection()
 if 'user' not in st.session_state: st.session_state.user = None
 if 'role' not in st.session_state: st.session_state.role = None
 if 'user_email' not in st.session_state: st.session_state.user_email = None
+if 'full_name' not in st.session_state: st.session_state.full_name = None
 
 THAI_MONTHS = {'01': 'มกราคม', '02': 'กุมภาพันธ์', '03': 'มีนาคม', '04': 'เมษายน', '05': 'พฤษภาคม', '06': 'มิถุนายน', '07': 'กรกฎาคม', '08': 'สิงหาคม', '09': 'กันยายน', '10': 'ตุลาคม', '11': 'พฤศจิกายน', '12': 'ธันวาคม'}
 
@@ -52,7 +53,11 @@ def login_user(email, password):
                 st.session_state.user = response.user
                 st.session_state.role = profile.data[0]['role']
                 st.session_state.user_email = email
-                st.success(f"เข้าสู่ระบบสำเร็จ! ยินดีต้อนรับ {email}")
+                # 🌟 ดึงชื่อ-สกุลมาเก็บในระบบ (ถ้าไม่มีให้ใช้อีเมลแทนก่อน)
+                saved_name = profile.data[0].get('full_name')
+                st.session_state.full_name = saved_name if saved_name else email
+                
+                st.success(f"เข้าสู่ระบบสำเร็จ! ยินดีต้อนรับ {st.session_state.full_name}")
                 time.sleep(1)
                 st.rerun()
             else: st.warning("บัญชีของคุณอยู่ระหว่างรอการอนุมัติจากผู้ดูแลระบบ")
@@ -64,6 +69,7 @@ def logout_user():
     supabase.auth.sign_out()
     st.session_state.user = None
     st.session_state.role = None
+    st.session_state.full_name = None
     st.rerun()
 
 def get_medicines():
@@ -106,27 +112,35 @@ if not st.session_state.user:
         with tab_register:
             with st.form("register_form"):
                 st.info("💡 สมัครสมาชิกใหม่ แล้วรอผู้ดูแลระบบอนุมัติเพื่อเข้าใช้งาน")
+                reg_name = st.text_input("ชื่อ - นามสกุล (สำหรับบันทึกในประวัติรับ-จ่าย)")
                 reg_email = st.text_input("อีเมล")
                 reg_password = st.text_input("รหัสผ่าน (ขั้นต่ำ 6 ตัวอักษร)", type="password")
                 if st.form_submit_button("สมัครสมาชิก", use_container_width=True):
-                    if reg_email and len(reg_password) >= 6:
+                    if reg_name and reg_email and len(reg_password) >= 6:
                         try:
-                            supabase.auth.sign_up({"email": reg_email, "password": reg_password})
+                            res = supabase.auth.sign_up({"email": reg_email, "password": reg_password})
+                            if res.user:
+                                # พยายามอัปเดตชื่อ-สกุลลงฐานข้อมูล
+                                try:
+                                    supabase.table("profiles").update({"full_name": reg_name}).eq("id", res.user.id).execute()
+                                except: pass
                             st.success("สมัครสมาชิกสำเร็จ! โปรดแจ้งผู้ดูแลระบบเพื่ออนุมัติการใช้งาน")
                         except Exception as e:
                             st.error(f"สมัครไม่สำเร็จ (อีเมลอาจซ้ำ หรือรหัสผ่านสั้นไป): {e}")
                     else:
-                        st.warning("กรุณากรอกอีเมลและรหัสผ่านให้ครบถ้วน")
+                        st.warning("กรุณากรอกชื่อ-สกุล, อีเมล และรหัสผ่านให้ครบถ้วน")
 
 else:
     with st.sidebar:
         st.image("https://cdn-icons-png.flaticon.com/512/3063/3063176.png", width=60)
-        st.write(f"👤 **{st.session_state.user_email}**")
+        # 🌟 โชว์ชื่อ-สกุล ในแถบด้านซ้าย
+        display_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
+        st.write(f"👤 **{display_name}**")
+        st.caption(f"✉️ {st.session_state.user_email}")
         st.caption(f"⭐ สถานะ: {st.session_state.role.upper()}")
         if st.button("ออกจากระบบ", use_container_width=True): logout_user()
         st.divider()
 
-    # 🌟 ปรับปรุงชื่อเมนูภาษาอังกฤษให้ถูกต้อง และใช้อิโมจิแบบเป็นทางการ
     menu_options = [
         "🖥️ แดชบอร์ด", 
         "📤 เบิกจ่ายยา (Dispense)", 
@@ -152,7 +166,11 @@ else:
             profiles = pd.DataFrame(supabase.table("profiles").select("*").execute().data)
             if not profiles.empty:
                 profiles['status'] = profiles['is_approved'].map({True: 'อนุมัติแล้ว', False: 'รออนุมัติ'})
-                st.dataframe(profiles[['email', 'role', 'status', 'created_at']], use_container_width=True)
+                # จัดเรียงคอลัมน์โชว์ชื่อ
+                cols_to_show = ['email', 'full_name', 'role', 'status', 'created_at']
+                existing_cols = [c for c in cols_to_show if c in profiles.columns]
+                st.dataframe(profiles[existing_cols], use_container_width=True)
+                
                 st.divider()
                 st.subheader("จัดการคำขอใช้งาน")
                 pending_users = profiles[profiles['is_approved'] == False]
@@ -170,16 +188,17 @@ else:
         with tab_add:
             st.subheader("สร้างบัญชีผู้ใช้งานใหม่")
             with st.form("admin_add_user"):
+                new_name = st.text_input("ชื่อ - นามสกุล (สำหรับบันทึกในประวัติ)")
                 new_email = st.text_input("อีเมลผู้ใช้งานใหม่")
                 new_password = st.text_input("รหัสผ่าน (ขั้นต่ำ 6 ตัวอักษร)", type="password")
                 new_role = st.selectbox("สิทธิ์การใช้งาน", ["staff", "admin"])
                 
                 if st.form_submit_button("สร้างบัญชี", use_container_width=True):
-                    if new_email and len(new_password) >= 6:
+                    if new_name and new_email and len(new_password) >= 6:
                         try:
                             res = supabase.auth.sign_up({"email": new_email, "password": new_password})
                             if res.user:
-                                supabase.table("profiles").update({"is_approved": True, "role": new_role}).eq("id", res.user.id).execute()
+                                supabase.table("profiles").update({"is_approved": True, "role": new_role, "full_name": new_name}).eq("id", res.user.id).execute()
                                 st.success(f"สร้างบัญชี {new_email} สำเร็จ!")
                                 st.warning("ข้อควรระวัง: หลังจากนี้ให้กดปุ่ม 'ออกจากระบบ' แล้วล็อกอินบัญชี Admin กลับเข้ามาอีกครั้ง")
                                 time.sleep(4)
@@ -187,7 +206,7 @@ else:
                         except Exception as e:
                             st.error(f"ไม่สามารถสร้างบัญชีได้: {e}")
                     else:
-                        st.warning("กรุณากรอกอีเมล และรหัสผ่านขั้นต่ำ 6 ตัวอักษร")
+                        st.warning("กรุณากรอกข้อมูลให้ครบถ้วน (และรหัสผ่านขั้นต่ำ 6 ตัวอักษร)")
 
         with tab_delete:
             st.subheader("เพิกถอนสิทธิ์ / ลบบัญชีผู้ใช้งาน")
@@ -480,7 +499,9 @@ else:
                         })
                         
                     note = st.text_input("หมายเหตุ (เช่น เบิกให้แผนก ER, รพ.สต.เครือข่าย)", value="จ่ายหน้างาน")
-                    st.caption(f"ผู้บันทึกการเบิกจ่าย: {st.session_state.user_email}")
+                    # 🌟 ใช้ชื่อ-สกุล ในการบันทึก
+                    recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
+                    st.caption(f"ผู้บันทึกการเบิกจ่าย: {recorder_name}")
                     
                     if st.form_submit_button("ยืนยันการเบิกจ่าย", use_container_width=True):
                         try:
@@ -490,7 +511,7 @@ else:
                                 supabase.table("transactions").insert({
                                     "medicine_id": data['medicine_id'], "action_type": "DISPENSE",
                                     "qty_change": -data['dispense_qty'], "lot_no": data['lot_no'],
-                                    "user_name": st.session_state.user_email, "note": note
+                                    "user_name": recorder_name, "note": note
                                 }).execute()
                             st.success("บันทึกการเบิกจ่ายสำเร็จ!")
                             time.sleep(1.5)
@@ -527,7 +548,9 @@ else:
                     "mfg_date": str(mfg), "exp_date": str(exp), "qty": qty
                 })
                 
-            st.caption(f"ผู้บันทึกการรับเข้า: {st.session_state.user_email}")
+            # 🌟 ใช้ชื่อ-สกุล ในการบันทึก
+            recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
+            st.caption(f"ผู้บันทึกการรับเข้า: {recorder_name}")
             
             if st.form_submit_button("บันทึกรับเข้าคลัง", use_container_width=True):
                 try:
@@ -536,7 +559,7 @@ else:
                             supabase.table("inventory").insert(data).execute()
                             supabase.table("transactions").insert({
                                 "medicine_id": data['medicine_id'], "action_type": "RECEIVE", "qty_change": data['qty'],
-                                "lot_no": data['lot_no'], "user_name": st.session_state.user_email, "note": "รับเข้าคลัง"
+                                "lot_no": data['lot_no'], "user_name": recorder_name, "note": "รับเข้าคลัง"
                             }).execute()
                     st.success("บันทึกรับเข้าสำเร็จ!")
                     time.sleep(1.5)
@@ -546,12 +569,11 @@ else:
                     st.info("คำแนะนำ: โปรดตรวจสอบว่ารหัส Lot มีการซ้ำซ้อนในระบบหรือไม่")
 
     # ----------------------------------------------------------------------
-    # 📋 ข้อมูลยา (Master Data) -> เรียงแท็บใหม่
+    # 📋 ข้อมูลยา (Master Data)
     # ----------------------------------------------------------------------
     elif menu == "📋 ข้อมูลยา (Master Data)":
         st.header("📋 จัดการข้อมูลเวชภัณฑ์หลัก (Master Data)")
         
-        # 🌟 สลับตำแหน่งแท็บ: ให้ "รายการที่มีอยู่" ขึ้นก่อน
         tab1, tab2, tab3 = st.tabs(["📄 รายการที่มีอยู่", "📝 เพิ่มรายการใหม่", "⚙️ แก้ไข / ลบข้อมูล"])
         
         with tab1:

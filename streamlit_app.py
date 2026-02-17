@@ -120,7 +120,7 @@ if not st.session_state.user:
                         try:
                             res = supabase.auth.sign_up({"email": reg_email, "password": reg_password})
                             if res.user:
-                                # 🌟 หน่วงเวลา 2 วินาที ให้ฐานข้อมูลสร้าง Profile ให้เสร็จก่อนอัปเดตชื่อ
+                                # หน่วงเวลา 2 วินาที ให้ฐานข้อมูลสร้าง Profile ให้เสร็จก่อนอัปเดตชื่อ
                                 time.sleep(2)
                                 try:
                                     supabase.table("profiles").update({"full_name": reg_name}).eq("id", res.user.id).execute()
@@ -165,14 +165,25 @@ else:
         with tab_manage:
             profiles = pd.DataFrame(supabase.table("profiles").select("*").execute().data)
             if not profiles.empty:
+                # 🌟 จัดรูปแบบสถานะและชื่อที่ว่างเปล่า
                 profiles['status'] = profiles['is_approved'].map({True: 'อนุมัติแล้ว', False: 'รออนุมัติ'})
+                profiles['full_name'] = profiles['full_name'].fillna('-')
                 
-                # 🌟 เอาคอลัมน์ created_at ออกจากตารางแสดงผล
-                cols_to_show = ['email', 'full_name', 'role', 'status']
+                # 🌟 แปลงเวลาให้เป็นเวลาไทย (Asia/Bangkok) และจัดฟอร์แมตสวยงาม
+                profiles['created_at'] = pd.to_datetime(profiles['created_at']).dt.tz_convert('Asia/Bangkok').dt.strftime('%d/%m/%Y %H:%M:%S')
+                
+                # 🌟 กำหนดคอลัมน์ที่จะโชว์
+                cols_to_show = ['email', 'full_name', 'role', 'status', 'created_at']
                 existing_cols = [c for c in cols_to_show if c in profiles.columns]
                 
                 df_show = profiles[existing_cols].copy()
-                df_show.rename(columns={'email': 'อีเมล', 'full_name': 'ชื่อ-นามสกุล', 'role': 'สิทธิ์', 'status': 'สถานะ'}, inplace=True)
+                df_show.rename(columns={
+                    'email': 'อีเมล', 
+                    'full_name': 'ชื่อ-นามสกุล', 
+                    'role': 'สิทธิ์', 
+                    'status': 'สถานะ',
+                    'created_at': 'วัน-เวลาที่สมัคร'
+                }, inplace=True)
                 
                 st.dataframe(df_show, use_container_width=True, hide_index=True)
                 
@@ -203,8 +214,7 @@ else:
                         try:
                             res = supabase.auth.sign_up({"email": new_email, "password": new_password})
                             if res.user:
-                                # 🌟 หน่วงเวลา 2 วินาที
-                                time.sleep(2)
+                                time.sleep(2) # หน่วงเวลา 2 วินาทีรอฐานข้อมูล
                                 supabase.table("profiles").update({"is_approved": True, "role": new_role, "full_name": new_name}).eq("id", res.user.id).execute()
                                 st.success(f"สร้างบัญชี {new_email} สำเร็จ!")
                                 st.warning("ข้อควรระวัง: หลังจากนี้ให้กดปุ่ม 'ออกจากระบบ' แล้วล็อกอินบัญชี Admin กลับเข้ามาอีกครั้ง")

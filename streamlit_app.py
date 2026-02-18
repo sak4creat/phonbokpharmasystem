@@ -230,15 +230,19 @@ else:
                     st.info("ไม่มีผู้ใช้งานอื่นในระบบ")
 
     # ----------------------------------------------------------------------
-    # 🖥️ แดชบอร์ด
+    # 🖥️ แดชบอร์ด (V27 - ตัดคงคลังรวมออก เอาเวชภัณฑ์มาใส่แทนตามขอ)
     # ----------------------------------------------------------------------
     elif menu == "🖥️ แดชบอร์ด":
         st.header("🖥️ ภาพรวมคลังเวชภัณฑ์ (Dashboard)")
         try:
-            meds = pd.DataFrame(supabase.table("medicines").select("id, generic_name, unit, min_stock").eq("is_active", True).execute().data)
+            meds = pd.DataFrame(supabase.table("medicines").select("id, generic_name, unit, min_stock, category").eq("is_active", True).execute().data)
             inv = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
             
             if not meds.empty:
+                # 🌟 นับรายการ ยา vs เวชภัณฑ์ที่ไม่ใช่ยา
+                count_drugs = len(meds[meds['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี'])])
+                count_supplies = len(meds[meds['category'] == 'เวชภัณฑ์/วัสดุ'])
+
                 if not inv.empty:
                     inv_agg = inv.groupby('medicine_id')['qty'].sum().reset_index()
                     df_dash = pd.merge(meds, inv_agg, left_on='id', right_on='medicine_id', how='left')
@@ -259,17 +263,16 @@ else:
                         if not near_exp_raw.empty:
                             near_exp = pd.merge(near_exp_raw, meds, left_on='medicine_id', right_on='id', how='left')
                 
-                total_items = len(meds)
-                total_qty = df_dash['qty'].sum()
-                
+                # 🌟 โชว์ 4 ช่องตามความต้องการ
                 c1, c2, c3, c4 = st.columns(4)
-                c1.metric("รายการเวชภัณฑ์", f"{total_items}", "รายการ")
-                c2.metric("ปริมาณคงคลังรวม", f"{total_qty:,.0f}", "Unit")
+                c1.metric("รายการเวชภัณฑ์ยา", f"{count_drugs}", "รายการ")
+                c2.metric("รายการเวชภัณฑ์ที่มิใช่ยา", f"{count_supplies}", "รายการ")
                 c3.metric("ต่ำกว่าจุดสั่งซื้อ (Re-order)", f"{len(low_stock)}", "รายการ", delta_color="inverse")
                 c4.metric("ใกล้หมดอายุ (< 3 เดือน)", f"{len(near_exp)}", "ล็อต", delta_color="inverse")
                 
                 st.divider()
                 
+                # 🌟 คงการแสดงผลด้านล่างไว้แบบเดิมทั้งหมด
                 col_l, col_r = st.columns(2)
                 with col_l:
                     st.markdown("#### แจ้งเตือน: ต่ำกว่าจุดสั่งซื้อ (Re-order Point)")
@@ -278,6 +281,7 @@ else:
                         for _, row in low_stock.iterrows():
                             st.markdown(f'<div class="warn-box"><strong>{row["generic_name"]}</strong><br>คงเหลือ: <span style="color:#d35400; font-size:18px;"><b>{int(row["qty"])}</b></span> {row["unit"]} (จุดสั่งซื้อ: {row["min_stock"]})</div>', unsafe_allow_html=True)
                     else: st.success("ยอดคงคลังเพียงพอทุกรายการ")
+                    
                 with col_r:
                     st.markdown("#### แจ้งเตือน: เวชภัณฑ์ใกล้หมดอายุ (Near Expiry)")
                     st.caption("รายการที่จะหมดอายุภายใน 3 เดือนข้างหน้า (90 วัน) - เร่งกระจายตามหลัก FEFO")
@@ -391,11 +395,9 @@ else:
             elif filter_action == "เฉพาะเบิกจ่าย": df_display = df_display[df_display['action_type'] == 'DISPENSE']
             if selected_ym != "ทั้งหมด": df_display = df_display[df_display['ym'] == selected_ym]
             
-            # จัดเตรียมข้อมูลสำหรับโชว์ในตาราง
             df_view = df_display[['created_at_str', 'action_type_th', 'generic_name', 'lot_no', 'qty_change_str', 'unit', 'user_name', 'note']].copy()
             df_view.columns = ['วัน-เวลา', 'ประเภท', 'รายการยา', 'เลข Lot', 'จำนวน (+/-)', 'หน่วย', 'ผู้บันทึก', 'หมายเหตุ']
             
-            # 🌟 สร้างตารางแบบคลิกเลือกแถวได้ (Interactive) 
             event = st.dataframe(
                 df_view, 
                 use_container_width=True, 
@@ -404,7 +406,6 @@ else:
                 on_select="rerun"
             )
             
-            # ถ้ายูสเซอร์คลิกเลือกแถวใดแถวหนึ่ง ให้ดึงข้อมูลมาแสดงด้านล่าง
             if len(event.selection.rows) > 0:
                 selected_idx = event.selection.rows[0]
                 selected_row = df_display.iloc[selected_idx]
@@ -414,7 +415,6 @@ else:
                 
                 recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
                 
-                # เช็คสิทธิ์การเข้าถึง
                 can_edit = False
                 if st.session_state.role == 'admin':
                     can_edit = True
@@ -425,7 +425,6 @@ else:
                 else:
                     st.error(f"❌ คุณไม่มีสิทธิ์แก้ไขรายการนี้ (ผู้บันทึกคือ: {selected_row['user_name']}) แอดมินหรือเจ้าของรายการเท่านั้นที่ทำได้")
                 
-                # ถ้ามีสิทธิ์ ให้แสดงฟอร์ม
                 if can_edit:
                     trans_id = str(selected_row['id'])
                     med_id = str(selected_row['medicine_id'])
@@ -638,7 +637,7 @@ else:
                             st.error(f"เกิดข้อผิดพลาดจากฐานข้อมูล: {e}")
 
     # ----------------------------------------------------------------------
-    # 📥 รับยาเข้า (Receive) (V25 - ป้องกันลบเงียบเมื่อไม่ใส่ Lot)
+    # 📥 รับยาเข้า (Receive)
     # ----------------------------------------------------------------------
     elif menu == "📥 รับยาเข้า (Receive)":
         st.header("📥 การรับเวชภัณฑ์เข้าคลัง (Receive)")
@@ -662,7 +661,6 @@ else:
                 qty = st.number_input("จำนวนที่รับเข้า", min_value=1, key=f"qty_{i}")
                 st.markdown("---")
                 
-                # 🌟 V25: ถ้าลืมใส่ Lot หรือเว้นว่างไว้ จะใส่ขีด "-" ให้อัตโนมัติ เพื่อไม่ให้เงื่อนไขข้ามการเซฟ
                 final_lot = lot if lot.strip() != "" else "-"
                 
                 receive_data.append({
@@ -677,7 +675,6 @@ else:
             if st.form_submit_button("บันทึกรับเข้าคลัง", use_container_width=True):
                 try:
                     for data in receive_data:
-                        # เอาเงื่อนไขดัก if data['lot_no']: ออกแล้ว! รับประกันว่าเซฟลงฐานข้อมูล 100% แน่นอน
                         supabase.table("inventory").insert(data).execute()
                         supabase.table("transactions").insert({
                             "medicine_id": data['medicine_id'], "action_type": "RECEIVE", "qty_change": data['qty'],

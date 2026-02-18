@@ -3,6 +3,7 @@ from supabase import create_client
 import pandas as pd
 import datetime
 import time
+import io
 
 # --- 1. ตั้งค่าและเชื่อมต่อ (SETUP) ---
 st.set_page_config(page_title="ระบบคลังยา รพ.สต. โพนบก", layout="wide", page_icon="🏥")
@@ -145,7 +146,7 @@ else:
         "📥 รับยาเข้า (Receive)", 
         "🧾 ประวัติรับ-จ่าย", 
         "🗃️ สต๊อกการ์ด", 
-        "📊 สรุปยอดประจำเดือน", 
+        "📊 สรุปยอด และ ขอเบิก", 
         "📋 ข้อมูลยา (Master Data)"
     ]
     if st.session_state.role == 'admin': menu_options.append("⚙️ จัดการระบบ (Admin)")
@@ -230,7 +231,7 @@ else:
                     st.info("ไม่มีผู้ใช้งานอื่นในระบบ")
 
     # ----------------------------------------------------------------------
-    # 🖥️ แดชบอร์ด (V27 - ตัดคงคลังรวมออก เอาเวชภัณฑ์มาใส่แทนตามขอ)
+    # 🖥️ แดชบอร์ด (V27 คงเดิม)
     # ----------------------------------------------------------------------
     elif menu == "🖥️ แดชบอร์ด":
         st.header("🖥️ ภาพรวมคลังเวชภัณฑ์ (Dashboard)")
@@ -239,7 +240,6 @@ else:
             inv = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
             
             if not meds.empty:
-                # 🌟 นับรายการ ยา vs เวชภัณฑ์ที่ไม่ใช่ยา
                 count_drugs = len(meds[meds['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี'])])
                 count_supplies = len(meds[meds['category'] == 'เวชภัณฑ์/วัสดุ'])
 
@@ -263,7 +263,6 @@ else:
                         if not near_exp_raw.empty:
                             near_exp = pd.merge(near_exp_raw, meds, left_on='medicine_id', right_on='id', how='left')
                 
-                # 🌟 โชว์ 4 ช่องตามความต้องการ
                 c1, c2, c3, c4 = st.columns(4)
                 c1.metric("รายการเวชภัณฑ์ยา", f"{count_drugs}", "รายการ")
                 c2.metric("รายการเวชภัณฑ์ที่มิใช่ยา", f"{count_supplies}", "รายการ")
@@ -272,7 +271,6 @@ else:
                 
                 st.divider()
                 
-                # 🌟 คงการแสดงผลด้านล่างไว้แบบเดิมทั้งหมด
                 col_l, col_r = st.columns(2)
                 with col_l:
                     st.markdown("#### แจ้งเตือน: ต่ำกว่าจุดสั่งซื้อ (Re-order Point)")
@@ -294,75 +292,147 @@ else:
         except Exception as e: st.error(f"Error: {e}")
 
     # ----------------------------------------------------------------------
-    # 📊 สรุปยอดประจำเดือน
+    # 📊 สรุปยอดประจำเดือน และ รายงานขอเบิก (V28 - เพิ่มรายงานขอเบิกแบบ Excel)
     # ----------------------------------------------------------------------
-    elif menu == "📊 สรุปยอดประจำเดือน":
-        st.header("📊 สรุปยอดรับ-จ่าย ประจำเดือน")
-        st.caption("รายงานสรุปยอดการรับเข้า เบิกจ่ายในแต่ละเดือน และยอดคงเหลือปัจจุบัน แยกตามรายการยา")
+    elif menu == "📊 สรุปยอด และ ขอเบิก":
+        st.header("📊 สรุปยอด และ ขอเบิกเวชภัณฑ์")
+        
+        # 🌟 แยกเป็น 2 แท็บ
+        tab_summary, tab_reorder = st.tabs(["📅 สรุปยอดรับ-จ่าย ประจำเดือน", "🛒 รายงานขอเบิก (ต่ำกว่าจุดสั่งซื้อ)"])
 
-        df_trans = get_transactions_view()
+        # ==========================================
+        # แท็บที่ 1: สรุปยอดประจำเดือน (ของเดิม)
+        # ==========================================
+        with tab_summary:
+            st.caption("รายงานสรุปยอดการรับเข้า เบิกจ่ายในแต่ละเดือน และยอดคงเหลือปัจจุบัน แยกตามรายการยา")
 
-        if not df_trans.empty:
-            df_trans['created_at_dt'] = pd.to_datetime(df_trans['created_at'], utc=True).dt.tz_convert('Asia/Bangkok')
-            df_trans['ym'] = df_trans['created_at_dt'].dt.strftime('%Y-%m')
+            df_trans = get_transactions_view()
 
-            all_months = df_trans['ym'].dropna().unique().tolist()
-            all_months.sort(reverse=True)
+            if not df_trans.empty:
+                df_trans['created_at_dt'] = pd.to_datetime(df_trans['created_at'], utc=True).dt.tz_convert('Asia/Bangkok')
+                df_trans['ym'] = df_trans['created_at_dt'].dt.strftime('%Y-%m')
 
-            if all_months:
-                month_opts = {ym: format_thai_month(ym) for ym in all_months}
-                selected_ym = st.selectbox("เลือกเดือนที่ต้องการดูรายงาน:", options=all_months, format_func=lambda x: month_opts[x])
+                all_months = df_trans['ym'].dropna().unique().tolist()
+                all_months.sort(reverse=True)
 
-                st.divider()
-                st.subheader(f"รายงานประจำเดือน: {format_thai_month(selected_ym)}")
+                if all_months:
+                    month_opts = {ym: format_thai_month(ym) for ym in all_months}
+                    selected_ym = st.selectbox("เลือกเดือนที่ต้องการดูรายงาน:", options=all_months, format_func=lambda x: month_opts[x])
 
-                df_month = df_trans[df_trans['ym'] == selected_ym]
+                    st.divider()
+                    st.subheader(f"รายงานประจำเดือน: {format_thai_month(selected_ym)}")
 
-                df_recv = df_month[df_month['action_type'] == 'RECEIVE'].groupby('medicine_id')['qty_change'].sum().reset_index()
-                df_recv.rename(columns={'qty_change': 'receive_qty'}, inplace=True)
+                    df_month = df_trans[df_trans['ym'] == selected_ym]
 
-                df_disp = df_month[df_month['action_type'] == 'DISPENSE'].groupby('medicine_id')['qty_change'].sum().reset_index()
-                df_disp['qty_change'] = df_disp['qty_change'].abs()
-                df_disp.rename(columns={'qty_change': 'dispense_qty'}, inplace=True)
+                    df_recv = df_month[df_month['action_type'] == 'RECEIVE'].groupby('medicine_id')['qty_change'].sum().reset_index()
+                    df_recv.rename(columns={'qty_change': 'receive_qty'}, inplace=True)
 
+                    df_disp = df_month[df_month['action_type'] == 'DISPENSE'].groupby('medicine_id')['qty_change'].sum().reset_index()
+                    df_disp['qty_change'] = df_disp['qty_change'].abs()
+                    df_disp.rename(columns={'qty_change': 'dispense_qty'}, inplace=True)
+
+                    inv = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
+                    if not inv.empty:
+                        inv_agg = inv.groupby('medicine_id')['qty'].sum().reset_index()
+                    else:
+                        inv_agg = pd.DataFrame(columns=['medicine_id', 'qty'])
+
+                    meds = get_medicines()
+
+                    if not meds.empty:
+                        report = pd.merge(meds[['id', 'generic_name', 'unit', 'min_stock']], df_recv, left_on='id', right_on='medicine_id', how='left')
+                        report = pd.merge(report, df_disp, left_on='id', right_on='medicine_id', how='left')
+                        report = pd.merge(report, inv_agg, left_on='id', right_on='medicine_id', how='left')
+
+                        report['receive_qty'] = report['receive_qty'].fillna(0).astype(int)
+                        report['dispense_qty'] = report['dispense_qty'].fillna(0).astype(int)
+                        report['qty'] = report['qty'].fillna(0).astype(int)
+                        report['min_stock'] = report['min_stock'].fillna(0).astype(int)
+
+                        report_display = report[['generic_name', 'unit', 'min_stock', 'receive_qty', 'dispense_qty', 'qty']].copy()
+                        report_display.insert(0, 'ลำดับ', range(1, len(report_display) + 1))
+                        
+                        report_display.columns = ['ลำดับ', 'รายการ', 'หน่วยนับ', 'จุดสั่งซื้อ', 'รับมา', 'เบิกจ่าย', 'คงเหลือ']
+
+                        st.dataframe(report_display, use_container_width=True, hide_index=True)
+
+                        csv = report_display.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(
+                            label="ดาวน์โหลดรายงาน (CSV)",
+                            data=csv,
+                            file_name=f'Summary_Report_{selected_ym}.csv',
+                            mime='text/csv'
+                        )
+                    else:
+                        st.warning("ไม่พบข้อมูลเวชภัณฑ์ในระบบ")
+                else:
+                    st.info("ยังไม่มีข้อมูลในเดือนที่เลือก")
+            else:
+                st.info("ยังไม่มีประวัติการทำรายการรับ-จ่ายในระบบ")
+
+        # ==========================================
+        # แท็บที่ 2: รายงานขอเบิก (ฟีเจอร์ใหม่)
+        # ==========================================
+        with tab_reorder:
+            st.subheader("🛒 รายงานขอเบิกเวชภัณฑ์ (Re-order Report)")
+            st.caption("แสดงเฉพาะรายการที่ 'จำนวนคงเหลือ' ต่ำกว่าหรือเท่ากับ 'จุดสั่งซื้อ'")
+            
+            meds = get_medicines()
+            if not meds.empty:
+                # รวมยอดคงเหลือ
                 inv = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
                 if not inv.empty:
                     inv_agg = inv.groupby('medicine_id')['qty'].sum().reset_index()
+                    df_reorder = pd.merge(meds, inv_agg, left_on='id', right_on='medicine_id', how='left')
+                    df_reorder['qty'] = df_reorder['qty'].fillna(0).astype(int)
                 else:
-                    inv_agg = pd.DataFrame(columns=['medicine_id', 'qty'])
+                    df_reorder = meds.copy()
+                    df_reorder['qty'] = 0
 
-                meds = get_medicines()
+                # 🌟 กรองเฉพาะตัวที่ต่ำกว่าจุดสั่งซื้อ
+                df_reorder = df_reorder[df_reorder['qty'] <= df_reorder['min_stock']].copy()
 
-                if not meds.empty:
-                    report = pd.merge(meds[['id', 'generic_name', 'unit', 'min_stock']], df_recv, left_on='id', right_on='medicine_id', how='left')
-                    report = pd.merge(report, df_disp, left_on='id', right_on='medicine_id', how='left')
-                    report = pd.merge(report, inv_agg, left_on='id', right_on='medicine_id', how='left')
+                if not df_reorder.empty:
+                    # สร้างคอลัมน์ "จำนวนขอเบิก" โดยแนะนำให้เบิกเท่ากับจำนวนใช้อัตราต่อเดือน (min_stock)
+                    df_reorder['suggested_reorder'] = df_reorder['min_stock']
 
-                    report['receive_qty'] = report['receive_qty'].fillna(0).astype(int)
-                    report['dispense_qty'] = report['dispense_qty'].fillna(0).astype(int)
-                    report['qty'] = report['qty'].fillna(0).astype(int)
-                    report['min_stock'] = report['min_stock'].fillna(0).astype(int)
-
-                    report_display = report[['generic_name', 'unit', 'min_stock', 'receive_qty', 'dispense_qty', 'qty']].copy()
-                    report_display.insert(0, 'ลำดับ', range(1, len(report_display) + 1))
+                    # เลือกและจัดเรียงคอลัมน์ตามที่คุณขอ
+                    df_display_reorder = df_reorder[['generic_name', 'unit', 'min_stock', 'qty', 'suggested_reorder']].copy()
+                    df_display_reorder.insert(0, 'ลำดับ', range(1, len(df_display_reorder) + 1))
                     
-                    report_display.columns = ['ลำดับ', 'รายการ', 'หน่วยนับ', 'จุดสั่งซื้อ', 'รับมา', 'เบิกจ่าย', 'คงเหลือ']
+                    df_display_reorder.columns = ['ลำดับ', 'รายการ', 'หน่วยนับ', 'อัตราใช้ต่อเดือน', 'จำนวนคงเหลือ', 'จำนวนขอเบิก']
 
-                    st.dataframe(report_display, use_container_width=True, hide_index=True)
+                    # แสดงผลตารางบนหน้าเว็บ
+                    st.dataframe(df_display_reorder, use_container_width=True, hide_index=True)
 
-                    csv = report_display.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(
-                        label="ดาวน์โหลดรายงาน (CSV)",
-                        data=csv,
-                        file_name=f'Summary_Report_{selected_ym}.csv',
-                        mime='text/csv'
-                    )
+                    st.divider()
+                    
+                    # 🌟 ระบบสร้างไฟล์ Excel (.xlsx) เพื่อดาวน์โหลด
+                    buffer = io.BytesIO()
+                    try:
+                        # พยายามสร้างไฟล์ Excel (ต้องมีไลบรารี openpyxl)
+                        df_display_reorder.to_excel(buffer, index=False, sheet_name='ใบขอเบิก')
+                        st.download_button(
+                            label="📥 ดาวน์โหลดไฟล์ Excel (.xlsx)",
+                            data=buffer.getvalue(),
+                            file_name=f"ใบขอเบิกเวชภัณฑ์_{datetime.date.today().strftime('%Y_%m_%d')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            type="primary"
+                        )
+                    except Exception as e:
+                        # แผนสำรอง: ถ้า Server ไม่มีไลบรารี Excel ให้ดาวน์โหลดเป็น CSV ที่เปิดใน Excel ได้ภาษาไทยไม่เพี้ยนแทน
+                        csv_reorder = df_display_reorder.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(
+                            label="📥 ดาวน์โหลดไฟล์ขอเบิก (CSV รองรับ Excel)",
+                            data=csv_reorder,
+                            file_name=f"ใบขอเบิกเวชภัณฑ์_{datetime.date.today().strftime('%Y_%m_%d')}.csv",
+                            mime="text/csv",
+                            type="primary"
+                        )
                 else:
-                    st.warning("ไม่พบข้อมูลเวชภัณฑ์ในระบบ")
+                    st.success("✅ ยอดคงคลังเพียงพอทุกรายการ ยังไม่มีรายการที่ต้องออกใบขอเบิกในขณะนี้ครับ")
             else:
-                st.info("ยังไม่มีข้อมูลในเดือนที่เลือก")
-        else:
-            st.info("ยังไม่มีประวัติการทำรายการรับ-จ่ายในระบบ")
+                st.warning("ไม่พบข้อมูลเวชภัณฑ์ในระบบ")
 
     # ----------------------------------------------------------------------
     # 🧾 ประวัติรับ-จ่าย (ตารางคลิกได้)

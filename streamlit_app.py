@@ -120,8 +120,6 @@ if not st.session_state.user:
                         try:
                             res = supabase.auth.sign_up({"email": reg_email, "password": reg_password})
                             if res.user:
-                                # หน่วงเวลา 2 วินาที ให้ฐานข้อมูลสร้าง Profile ให้เสร็จก่อนอัปเดตชื่อ
-                                time.sleep(2)
                                 try:
                                     supabase.table("profiles").update({"full_name": reg_name}).eq("id", res.user.id).execute()
                                 except: pass
@@ -165,27 +163,10 @@ else:
         with tab_manage:
             profiles = pd.DataFrame(supabase.table("profiles").select("*").execute().data)
             if not profiles.empty:
-                # 🌟 จัดรูปแบบสถานะและชื่อที่ว่างเปล่า
                 profiles['status'] = profiles['is_approved'].map({True: 'อนุมัติแล้ว', False: 'รออนุมัติ'})
-                profiles['full_name'] = profiles['full_name'].fillna('-')
-                
-                # 🌟 แปลงเวลาให้เป็นเวลาไทย (Asia/Bangkok) และจัดฟอร์แมตสวยงาม
-                profiles['created_at'] = pd.to_datetime(profiles['created_at']).dt.tz_convert('Asia/Bangkok').dt.strftime('%d/%m/%Y %H:%M:%S')
-                
-                # 🌟 กำหนดคอลัมน์ที่จะโชว์
                 cols_to_show = ['email', 'full_name', 'role', 'status', 'created_at']
                 existing_cols = [c for c in cols_to_show if c in profiles.columns]
-                
-                df_show = profiles[existing_cols].copy()
-                df_show.rename(columns={
-                    'email': 'อีเมล', 
-                    'full_name': 'ชื่อ-นามสกุล', 
-                    'role': 'สิทธิ์', 
-                    'status': 'สถานะ',
-                    'created_at': 'วัน-เวลาที่สมัคร'
-                }, inplace=True)
-                
-                st.dataframe(df_show, use_container_width=True, hide_index=True)
+                st.dataframe(profiles[existing_cols], use_container_width=True)
                 
                 st.divider()
                 st.subheader("จัดการคำขอใช้งาน")
@@ -214,7 +195,6 @@ else:
                         try:
                             res = supabase.auth.sign_up({"email": new_email, "password": new_password})
                             if res.user:
-                                time.sleep(2) # หน่วงเวลา 2 วินาทีรอฐานข้อมูล
                                 supabase.table("profiles").update({"is_approved": True, "role": new_role, "full_name": new_name}).eq("id", res.user.id).execute()
                                 st.success(f"สร้างบัญชี {new_email} สำเร็จ!")
                                 st.warning("ข้อควรระวัง: หลังจากนี้ให้กดปุ่ม 'ออกจากระบบ' แล้วล็อกอินบัญชี Admin กลับเข้ามาอีกครั้ง")
@@ -381,7 +361,7 @@ else:
             st.info("ยังไม่มีประวัติการทำรายการรับ-จ่ายในระบบ")
 
     # ----------------------------------------------------------------------
-    # 🧾 ประวัติรับ-จ่าย
+    # 🧾 ประวัติรับ-จ่าย (V21 - จัดการสิทธิ์ + เครื่องหมาย +/-)
     # ----------------------------------------------------------------------
     elif menu == "🧾 ประวัติรับ-จ่าย":
         st.header("🧾 ประวัติการรับและเบิกจ่ายเวชภัณฑ์")
@@ -393,6 +373,9 @@ else:
             df_trans['ym'] = df_trans['created_at_dt'].dt.strftime('%Y-%m')
             df_trans['created_at_str'] = df_trans['created_at_dt'].dt.strftime('%d/%m/%Y %H:%M:%S')
             df_trans['action_type_th'] = df_trans['action_type'].map({'RECEIVE': 'รับเข้า', 'DISPENSE': 'เบิกจ่าย', 'INITIAL': 'ยอดยกมา'}).fillna(df_trans['action_type'])
+            
+            # 🌟 แปลงคอลัมน์จำนวนให้มีเครื่องหมาย + / -
+            df_trans['qty_change_str'] = df_trans['qty_change'].apply(lambda x: f"+{x}" if x > 0 else str(x))
             
             c1, c2 = st.columns([1, 1])
             with c1:
@@ -409,15 +392,136 @@ else:
             elif filter_action == "เฉพาะเบิกจ่าย": df_display = df_display[df_display['action_type'] == 'DISPENSE']
             if selected_ym != "ทั้งหมด": df_display = df_display[df_display['ym'] == selected_ym]
             
-            cols_to_show = ['created_at_str', 'action_type_th', 'generic_name', 'lot_no', 'qty_change', 'unit', 'user_name', 'note']
+            cols_to_show = ['created_at_str', 'action_type_th', 'generic_name', 'lot_no', 'qty_change_str', 'unit', 'user_name', 'note']
             df_display = df_display[cols_to_show]
             df_display.columns = ['วัน-เวลา', 'ประเภท', 'รายการยา', 'เลข Lot', 'จำนวน (+/-)', 'หน่วย', 'ผู้บันทึก', 'หมายเหตุ']
             
+            # แสดงตารางประวัติ
             st.dataframe(df_display, use_container_width=True, hide_index=True)
+            
+            # --- 🌟 ระบบจัดการแก้ไข/ลบประวัติ ---
+            st.divider()
+            st.subheader("⚙️ จัดการประวัติ (แก้ไข / ลบรายการ)")
+            
+            recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
+            
+            # ตรวจสอบสิทธิ์ (Admin เห็นทั้งหมด / Staff เห็นแค่ของตัวเอง)
+            if st.session_state.role == 'admin':
+                editable_trans = df_trans.copy()
+                st.caption("👑 **สิทธิ์ Admin:** สามารถแก้ไขหรือลบ ประวัติการทำรายการได้ **ทุกรายการ**")
+            else:
+                editable_trans = df_trans[df_trans['user_name'] == recorder_name].copy()
+                st.caption(f"👤 **สิทธิ์ Staff:** คุณสามารถจัดการได้เฉพาะรายการที่คุณบันทึกด้วยชื่อ **{recorder_name}** เท่านั้น")
+                
+            if not editable_trans.empty:
+                # สร้างข้อความสำหรับให้เลือกใน Dropdown
+                editable_trans['display_text'] = editable_trans['created_at_str'] + " | " + editable_trans['action_type_th'] + " | " + editable_trans['generic_name'] + " (" + editable_trans['qty_change_str'] + " " + editable_trans['unit'] + ")"
+                
+                selected_trans_str = st.selectbox("🔍 ค้นหาและเลือกรายการที่ต้องการจัดการ:", editable_trans['display_text'].tolist())
+                
+                if selected_trans_str:
+                    selected_row = editable_trans[editable_trans['display_text'] == selected_trans_str].iloc[0]
+                    trans_id = str(selected_row['id'])
+                    med_id = str(selected_row['medicine_id'])
+                    lot_no = str(selected_row['lot_no'])
+                    old_qty_change = int(selected_row['qty_change'])
+                    action_type = selected_row['action_type']
+                    
+                    with st.form("edit_delete_trans_form"):
+                        st.markdown(f"**กำลังจัดการรายการ:** {selected_row['generic_name']} (Lot: `{lot_no}`)")
+                        
+                        c1, c2 = st.columns(2)
+                        
+                        if action_type == 'RECEIVE':
+                            new_abs_qty = c1.number_input("จำนวนรับเข้า (ชิ้น)", min_value=1, value=abs(old_qty_change))
+                            new_qty_change = new_abs_qty
+                        elif action_type == 'DISPENSE':
+                            new_abs_qty = c1.number_input("จำนวนเบิกจ่าย (ชิ้น)", min_value=1, value=abs(old_qty_change))
+                            new_qty_change = -new_abs_qty
+                        else:
+                            st.info("💡 ยอดยกมาเริ่มต้น ไม่สามารถแก้ไขจำนวนได้ (ลบได้อย่างเดียว)")
+                            new_qty_change = old_qty_change
+                            
+                        new_note = c2.text_input("หมายเหตุ", value=str(selected_row['note']) if pd.notna(selected_row['note']) else "")
+                        
+                        st.warning("⚠️ การแก้ไขหรือลบจำนวน จะมีการคำนวณและปรับตัวเลข 'ยอดคงเหลือปัจจุบัน' ในคลังให้อัตโนมัติ")
+                        confirm_del = st.checkbox("กดยืนยันหากต้องการ **ลบ** รายการนี้ทิ้งถาวร (คืนยอดเข้าคลัง)")
+                        
+                        col_btn1, col_btn2 = st.columns(2)
+                        submit_edit = col_btn1.form_submit_button("💾 บันทึกการแก้ไข", use_container_width=True)
+                        submit_delete = col_btn2.form_submit_button("❌ ลบรายการนี้", type="primary", use_container_width=True)
+                        
+                        # --- Logic กดปุ่มแก้ไข ---
+                        if submit_edit:
+                            if action_type == 'INITIAL' and new_qty_change != old_qty_change:
+                                st.error("ไม่สามารถแก้ไขจำนวนของยอดยกมาได้")
+                            else:
+                                try:
+                                    # เช็คและคำนวณส่วนต่างของจำนวนใหม่-เก่า เพื่อปรับสต๊อก
+                                    if new_qty_change != old_qty_change:
+                                        qty_diff = new_qty_change - old_qty_change
+                                        inv_res = supabase.table("inventory").select("*").eq("medicine_id", med_id).eq("lot_no", lot_no).execute()
+                                        
+                                        if inv_res.data:
+                                            current_inv_qty = inv_res.data[0]['qty']
+                                            inv_id = inv_res.data[0]['id']
+                                            new_inv_qty = current_inv_qty + qty_diff
+                                            
+                                            if new_inv_qty < 0: # ป้องกันสต๊อกติดลบ
+                                                st.error("❌ แก้ไขไม่ได้: การลดยอดรับเข้า หรือเพิ่มยอดเบิกจ่ายนี้ จะทำให้สต๊อกในคลังติดลบ!")
+                                                st.stop()
+                                                
+                                            # อัปเดตคลัง
+                                            supabase.table("inventory").update({"qty": new_inv_qty}).eq("id", inv_id).execute()
+                                        else:
+                                            st.warning("ไม่พบ Lot นี้ในคลัง (อาจถูกลบไปแล้ว) ทำการอัปเดตเฉพาะประวัติเท่านั้น")
+                                            
+                                    # อัปเดตประวัติ
+                                    supabase.table("transactions").update({
+                                        "qty_change": new_qty_change,
+                                        "note": new_note
+                                    }).eq("id", trans_id).execute()
+                                    
+                                    st.success("✅ อัปเดตประวัติและปรับยอดในคลังสำเร็จ!")
+                                    time.sleep(1.5)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ เกิดข้อผิดพลาดในการอัปเดต: {e}")
+                                
+                        # --- Logic กดปุ่มลบ ---
+                        if submit_delete:
+                            if confirm_del:
+                                try:
+                                    # ดึงยอดคลังมาคืนค่าเดิม
+                                    inv_res = supabase.table("inventory").select("*").eq("medicine_id", med_id).eq("lot_no", lot_no).execute()
+                                    if inv_res.data:
+                                        current_inv_qty = inv_res.data[0]['qty']
+                                        inv_id = inv_res.data[0]['id']
+                                        new_inv_qty = current_inv_qty - old_qty_change # ลบการกระทำเดิมทิ้ง = หักลบ
+                                        
+                                        if new_inv_qty < 0:
+                                            st.error("❌ ลบไม่ได้: การลบรายการรับเข้านี้ จะทำให้สต๊อกคงเหลือในคลังติดลบ!")
+                                            st.stop()
+                                            
+                                        # คืนยอดเข้าคลัง
+                                        supabase.table("inventory").update({"qty": new_inv_qty}).eq("id", inv_id).execute()
+                                        
+                                    # ลบประวัติ
+                                    supabase.table("transactions").delete().eq("id", trans_id).execute()
+                                    st.success("✅ ลบประวัติและคืนยอดเข้าคลังสำเร็จ!")
+                                    time.sleep(1.5)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ เกิดข้อผิดพลาดในการลบ: {e}")
+                            else:
+                                st.error("กรุณาติ๊กกล่องสี่เหลี่ยม 'กดยืนยัน' ก่อนทำการลบรายการ")
+            else:
+                st.info("📭 คุณยังไม่มีประวัติการทำรายการที่สามารถแก้ไขได้")
+
         else: st.info("ยังไม่มีประวัติการทำรายการในระบบ")
 
     # ----------------------------------------------------------------------
-    # 🗃️ สต๊อกการ์ด
+    # 🗃️ สต๊อกการ์ด (อัปเดตเครื่องหมาย +/- ให้เหมือนกัน)
     # ----------------------------------------------------------------------
     elif menu == "🗃️ สต๊อกการ์ด":
         st.header("🗃️ บัญชีคุมสินค้าคงคลัง (Stock Card)")
@@ -452,6 +556,9 @@ else:
                     df_t['created_at_str'] = df_t['created_at_dt'].dt.strftime('%d/%m/%Y %H:%M')
                     df_t['action_type_th'] = df_t['action_type'].map({'RECEIVE': 'รับเข้า', 'DISPENSE': 'เบิกจ่าย', 'INITIAL': 'ยอดยกมา'}).fillna(df_t['action_type'])
                     
+                    # 🌟 แปลงคอลัมน์จำนวนให้มีเครื่องหมาย + / -
+                    df_t['qty_change_str'] = df_t['qty_change'].apply(lambda x: f"+{x}" if x > 0 else str(x))
+                    
                     all_months_sc = df_t['ym'].dropna().unique().tolist()
                     all_months_sc.sort(reverse=True)
                     month_opts_sc = {"ทั้งหมด": "ดูทุกรอบเดือน (All Time)"}
@@ -462,7 +569,7 @@ else:
                     if selected_ym_sc != "ทั้งหมด": df_show = df_t[df_t['ym'] == selected_ym_sc].copy()
                     else: df_show = df_t.copy()
                     
-                    cols = ['created_at_str', 'action_type_th', 'lot_no', 'exp_date', 'qty_change', 'running_balance', 'user_name', 'note']
+                    cols = ['created_at_str', 'action_type_th', 'lot_no', 'exp_date', 'qty_change_str', 'running_balance', 'user_name', 'note']
                     df_show = df_show[cols]
                     df_show.columns = ['วัน-เวลา', 'ประเภท', 'เลข Lot', 'วันหมดอายุ', 'จำนวนรับ/จ่าย', f'ยอดคงเหลือ ({selected_unit})', 'ผู้บันทึก', 'หมายเหตุ']
                     

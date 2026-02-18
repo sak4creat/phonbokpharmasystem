@@ -666,7 +666,7 @@ else:
                     "mfg_date": str(mfg), "exp_date": str(exp), "qty": qty
                 })
                 
-            # 🌟 เพิ่มช่องหมายเหตุ และแก้ค่าเริ่มต้นเป็น รับเข้า (Receive)
+            # 🌟 รับค่าหมายเหตุจากช่องกรอก
             receive_note = st.text_input("หมายเหตุ (สามารถแก้ไขได้)", value="รับเข้า (Receive)")
             recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
             st.caption(f"ผู้บันทึกการรับเข้า: {recorder_name}")
@@ -676,9 +676,10 @@ else:
                     for data in receive_data:
                         if data['lot_no']:
                             supabase.table("inventory").insert(data).execute()
+                            # 🌟 แก้ไขให้ใช้ตัวแปร receive_note แทนคำที่ Fix ไว้
                             supabase.table("transactions").insert({
                                 "medicine_id": data['medicine_id'], "action_type": "RECEIVE", "qty_change": data['qty'],
-                                "lot_no": data['lot_no'], "user_name": recorder_name, "note": receive_note # 🌟 ใช้ตัวแปร Note ที่สร้างใหม่
+                                "lot_no": data['lot_no'], "user_name": recorder_name, "note": receive_note 
                             }).execute()
                     st.success("บันทึกรับเข้าสำเร็จ!")
                     time.sleep(1.5)

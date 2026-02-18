@@ -638,7 +638,7 @@ else:
                             st.error(f"เกิดข้อผิดพลาดจากฐานข้อมูล: {e}")
 
     # ----------------------------------------------------------------------
-    # 📥 รับยาเข้า (Receive)
+    # 📥 รับยาเข้า (Receive) (V25 - ป้องกันลบเงียบเมื่อไม่ใส่ Lot)
     # ----------------------------------------------------------------------
     elif menu == "📥 รับยาเข้า (Receive)":
         st.header("📥 การรับเวชภัณฑ์เข้าคลัง (Receive)")
@@ -661,12 +661,15 @@ else:
                 selected_id = d_choice.split(" | ")[0]
                 qty = st.number_input("จำนวนที่รับเข้า", min_value=1, key=f"qty_{i}")
                 st.markdown("---")
+                
+                # 🌟 V25: ถ้าลืมใส่ Lot หรือเว้นว่างไว้ จะใส่ขีด "-" ให้อัตโนมัติ เพื่อไม่ให้เงื่อนไขข้ามการเซฟ
+                final_lot = lot if lot.strip() != "" else "-"
+                
                 receive_data.append({
-                    "medicine_id": selected_id, "lot_no": lot,
+                    "medicine_id": selected_id, "lot_no": final_lot,
                     "mfg_date": str(mfg), "exp_date": str(exp), "qty": qty
                 })
                 
-            # 🌟 รับค่าหมายเหตุจากช่องกรอก
             receive_note = st.text_input("หมายเหตุ (สามารถแก้ไขได้)", value="รับเข้า (Receive)")
             recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
             st.caption(f"ผู้บันทึกการรับเข้า: {recorder_name}")
@@ -674,13 +677,12 @@ else:
             if st.form_submit_button("บันทึกรับเข้าคลัง", use_container_width=True):
                 try:
                     for data in receive_data:
-                        if data['lot_no']:
-                            supabase.table("inventory").insert(data).execute()
-                            # 🌟 แก้ไขให้ใช้ตัวแปร receive_note แทนคำที่ Fix ไว้
-                            supabase.table("transactions").insert({
-                                "medicine_id": data['medicine_id'], "action_type": "RECEIVE", "qty_change": data['qty'],
-                                "lot_no": data['lot_no'], "user_name": recorder_name, "note": receive_note 
-                            }).execute()
+                        # เอาเงื่อนไขดัก if data['lot_no']: ออกแล้ว! รับประกันว่าเซฟลงฐานข้อมูล 100% แน่นอน
+                        supabase.table("inventory").insert(data).execute()
+                        supabase.table("transactions").insert({
+                            "medicine_id": data['medicine_id'], "action_type": "RECEIVE", "qty_change": data['qty'],
+                            "lot_no": data['lot_no'], "user_name": recorder_name, "note": receive_note 
+                        }).execute()
                     st.success("บันทึกรับเข้าสำเร็จ!")
                     time.sleep(1.5)
                     st.rerun()

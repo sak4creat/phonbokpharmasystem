@@ -4,10 +4,11 @@ import pandas as pd
 import datetime
 import time
 import io
+import os
 
 # --- 1. ตั้งค่าและเชื่อมต่อ (SETUP) ---
-# 🌟 เปลี่ยนไอคอนบนแท็บเบราว์เซอร์เป็นโลโก้กระทรวงฯ
-st.set_page_config(page_title="ระบบคลังยา รพ.สต. โพนบก", layout="wide", page_icon="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Emblem_of_the_Ministry_of_Public_Health_of_Thailand.svg/512px-Emblem_of_the_Ministry_of_Public_Health_of_Thailand.svg.png")
+# 🌟 เปลี่ยนกลับมาใช้อิโมจิ เพื่อป้องกันหน้าเว็บพังเวลาโหลดโลโก้ไม่ขึ้น
+st.set_page_config(page_title="ระบบคลังยา รพ.สต. โพนบก", layout="wide", page_icon="🏥")
 
 st.markdown("""
 <style>
@@ -98,8 +99,12 @@ if not st.session_state.user:
     st.markdown("<br><br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        # 🌟 เปลี่ยนรูปในหน้าระบบล็อกอินเป็นโลโก้กระทรวงสาธารณสุข
-        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Emblem_of_the_Ministry_of_Public_Health_of_Thailand.svg/512px-Emblem_of_the_Ministry_of_Public_Health_of_Thailand.svg.png", width=120)
+        # 🌟 ระบบดึงรูปจากเครื่อง ถ้าไม่มีไฟล์ moph_logo.png จะใช้ตึก รพ. แทนหน้าเว็บจะได้ไม่พัง
+        if os.path.exists("moph_logo.png"):
+            st.image("moph_logo.png", width=120)
+        else:
+            st.image("https://cdn-icons-png.flaticon.com/512/3063/3063176.png", width=100)
+            
         st.title("ระบบคลังเวชภัณฑ์")
         st.markdown("##### รพ.สต. โพนบก 🏥")
         
@@ -134,8 +139,12 @@ if not st.session_state.user:
 
 else:
     with st.sidebar:
-        # 🌟 เปลี่ยนรูปในเมนูด้านซ้ายเป็นโลโก้กระทรวงสาธารณสุข
-        st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Emblem_of_the_Ministry_of_Public_Health_of_Thailand.svg/512px-Emblem_of_the_Ministry_of_Public_Health_of_Thailand.svg.png", width=80)
+        # 🌟 ระบบดึงรูปจากเครื่อง สำหรับแถบเมนู
+        if os.path.exists("moph_logo.png"):
+            st.image("moph_logo.png", width=80)
+        else:
+            st.image("https://cdn-icons-png.flaticon.com/512/3063/3063176.png", width=60)
+            
         display_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
         st.write(f"👤 **{display_name}**")
         st.caption(f"✉️ {st.session_state.user_email}")

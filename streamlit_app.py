@@ -92,7 +92,7 @@ def get_inventory_view():
     merged = pd.merge(inv, meds, left_on="medicine_id", right_on="id", how="left", suffixes=('', '_med'))
     return merged[merged['qty'] > 0]
 
-# 🌟 ฟังก์ชันใหม่ V45: ระบบแปลงอีเมลเป็นชื่อ-สกุลอัตโนมัติ
+# 🌟 V47 - อัปเกรดขั้นสุด: ตัดช่องว่างซ่อนเร้นและแปลงพิมพ์เล็กทั้งหมดเพื่อจับคู่ชื่อ
 def map_user_names(df, col_name='user_name'):
     if df.empty or col_name not in df.columns: return df
     try:
@@ -104,8 +104,22 @@ def map_user_names(df, col_name='user_name'):
                 (prof_df['full_name'].astype(str).str.strip() != '') & 
                 (prof_df['full_name'].astype(str).str.strip() != 'None')
             ]
-            email_to_name = dict(zip(valid_prof['email'], valid_prof['full_name']))
-            df[col_name] = df[col_name].apply(lambda x: email_to_name.get(x, x))
+            
+            # สร้าง Dictionary โดยตัดช่องว่างและทำเป็นพิมพ์เล็กทั้ง 2 ฝั่งเพื่อเป็นกุญแจค้นหา
+            email_to_name = {}
+            for e, n in zip(valid_prof['email'], valid_prof['full_name']):
+                clean_e = str(e).strip().lower()
+                email_to_name[clean_e] = str(n).strip()
+                
+            def replace_name(val):
+                if pd.isna(val): return val
+                # ทำความสะอาดข้อมูลในตารางก่อนเทียบ
+                clean_val = str(val).strip().lower()
+                if clean_val in email_to_name:
+                    return email_to_name[clean_val]
+                return val
+                
+            df[col_name] = df[col_name].apply(replace_name)
     except Exception as e:
         pass
     return df
@@ -117,7 +131,6 @@ def get_transactions_view():
     meds = pd.DataFrame(meds_response.data)
     if trans.empty: return pd.DataFrame()
     merged = pd.merge(trans, meds, left_on="medicine_id", right_on="id", how="left", suffixes=('', '_med'))
-    # 🌟 เรียกใช้ระบบแปลงชื่อให้ประวัติทั้งหมด
     return map_user_names(merged)
 
 # --- 4. ส่วนหน้าจอ (FRONTEND) ---
@@ -195,7 +208,7 @@ else:
     if menu == "⚙️ จัดการระบบ (Admin)":
         st.header("⚙️ จัดการระบบ (Admin Panel)")
         
-        tab_manage, tab_add, tab_delete = st.tabs(["👥 จัดการคำขอ / อนุมัติ", "➕ สร้างผู้ใช้ใหม่", "🗑️ ลบบัญชีผู้ใช้"])
+        tab_manage, tab_add, tab_delete = st.tabs(["👥 จัดการข้อมูลผู้ใช้ / อนุมัติ", "➕ สร้างผู้ใช้ใหม่", "🗑️ ลบบัญชีผู้ใช้"])
         
         with tab_manage:
             profiles = pd.DataFrame(supabase.table("profiles").select("*").execute().data)
@@ -741,7 +754,6 @@ else:
                 if st.session_state.role == 'admin':
                     can_edit = True
                     st.caption("👑 **สิทธิ์ Admin:** สามารถจัดการได้ทุกรายการ")
-                # 🌟 เช็กสิทธิ์โดยอ้างอิงจากอีเมลที่แท้จริงแทน เพื่อป้องกันการบั๊กตอนผู้ใช้เปลี่ยนชื่อ
                 elif selected_row.get('user_name') == recorder_name or selected_row.get('user_name') == st.session_state.user_email:
                     can_edit = True
                     st.caption(f"👤 **สิทธิ์ Staff:** จัดการรายการของคุณ {recorder_name}")

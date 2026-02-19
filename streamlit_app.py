@@ -171,34 +171,69 @@ else:
     menu = st.sidebar.radio("📌 เมนูหลัก", menu_options)
 
     # ----------------------------------------------------------------------
-    # ⚙️ จัดการระบบ (Admin)
+    # ⚙️ จัดการระบบ (Admin)  (V44 - อัปเกรดระบบแก้ไขชื่อ/สิทธิ์)
     # ----------------------------------------------------------------------
     if menu == "⚙️ จัดการระบบ (Admin)":
         st.header("⚙️ จัดการระบบ (Admin Panel)")
         
-        tab_manage, tab_add, tab_delete = st.tabs(["👥 จัดการคำขอ / อนุมัติ", "➕ สร้างผู้ใช้ใหม่", "🗑️ ลบบัญชีผู้ใช้"])
+        tab_manage, tab_add, tab_delete = st.tabs(["👥 จัดการข้อมูลผู้ใช้ / อนุมัติ", "➕ สร้างผู้ใช้ใหม่", "🗑️ ลบบัญชีผู้ใช้"])
         
         with tab_manage:
             profiles = pd.DataFrame(supabase.table("profiles").select("*").execute().data)
             if not profiles.empty:
-                profiles['status'] = profiles['is_approved'].map({True: 'อนุมัติแล้ว', False: 'รออนุมัติ'})
+                profiles_view = profiles.copy()
+                profiles_view['status'] = profiles_view['is_approved'].map({True: 'อนุมัติแล้ว', False: 'รออนุมัติ'})
                 cols_to_show = ['email', 'full_name', 'role', 'status', 'created_at']
-                existing_cols = [c for c in cols_to_show if c in profiles.columns]
-                st.dataframe(profiles[existing_cols], use_container_width=True)
+                existing_cols = [c for c in cols_to_show if c in profiles_view.columns]
+                st.dataframe(profiles_view[existing_cols], use_container_width=True)
                 
                 st.divider()
-                st.subheader("จัดการคำขอใช้งาน")
-                pending_users = profiles[profiles['is_approved'] == False]
-                if not pending_users.empty:
-                    user_to_approve = st.selectbox("เลือกผู้ใช้เพื่ออนุมัติ", pending_users['email'])
-                    c1, c2 = st.columns(2)
-                    if c1.button("อนุมัติให้เป็น Staff", use_container_width=True):
-                        supabase.table("profiles").update({"is_approved": True}).eq("email", user_to_approve).execute()
-                        st.success("อนุมัติเรียบร้อย!"); st.rerun()
-                    if c2.button("แต่งตั้งเป็น Admin", use_container_width=True):
-                        supabase.table("profiles").update({"is_approved": True, "role": "admin"}).eq("email", user_to_approve).execute()
-                        st.success("แต่งตั้งเป็น Admin เรียบร้อย!"); st.rerun()
-                else: st.info("ไม่มีคำขอรออนุมัติ")
+                # 🌟 แบ่งหน้าจอเป็น 2 ฝั่ง ซ้ายอนุมัติ / ขวาแก้ไข
+                col_m1, col_m2 = st.columns(2)
+                
+                with col_m1:
+                    st.subheader("✅ จัดการคำขอใช้งาน")
+                    pending_users = profiles[profiles['is_approved'] == False]
+                    if not pending_users.empty:
+                        user_to_approve = st.selectbox("เลือกผู้ใช้เพื่ออนุมัติ", pending_users['email'])
+                        c1, c2 = st.columns(2)
+                        if c1.button("อนุมัติให้เป็น Staff", use_container_width=True):
+                            supabase.table("profiles").update({"is_approved": True}).eq("email", user_to_approve).execute()
+                            st.success("อนุมัติเรียบร้อย!"); time.sleep(1); st.rerun()
+                        if c2.button("แต่งตั้งเป็น Admin", use_container_width=True):
+                            supabase.table("profiles").update({"is_approved": True, "role": "admin"}).eq("email", user_to_approve).execute()
+                            st.success("แต่งตั้งเป็น Admin เรียบร้อย!"); time.sleep(1); st.rerun()
+                    else: st.info("ไม่มีคำขอรออนุมัติ")
+                    
+                with col_m2:
+                    st.subheader("✏️ แก้ไขสิทธิ์และชื่อผู้ใช้งาน")
+                    # 🌟 เลือกลูกน้องเพื่อทำการแก้ไขชื่อและตำแหน่งได้เลย
+                    user_to_edit_email = st.selectbox("เลือกผู้ใช้ที่ต้องการแก้ไข", profiles['email'].tolist())
+                    if user_to_edit_email:
+                        selected_user = profiles[profiles['email'] == user_to_edit_email].iloc[0]
+                        with st.form("edit_user_profile_form"):
+                            # ถ้าเป็น None ให้โชว์เป็นช่องว่าง จะได้พิมพ์แก้ได้สวยๆ
+                            current_name = selected_user['full_name'] if pd.notna(selected_user['full_name']) else ""
+                            new_name = st.text_input("ชื่อ - นามสกุล", value=current_name)
+                            
+                            current_role = selected_user['role']
+                            role_options = ["staff", "admin"]
+                            try: role_idx = role_options.index(current_role)
+                            except: role_idx = 0
+                            new_role = st.selectbox("สิทธิ์การใช้งาน (Role)", role_options, index=role_idx)
+                            
+                            if st.form_submit_button("💾 บันทึกการแก้ไข", use_container_width=True):
+                                try:
+                                    supabase.table("profiles").update({
+                                        "full_name": new_name,
+                                        "role": new_role
+                                    }).eq("id", selected_user['id']).execute()
+                                    st.success(f"✅ อัปเดตข้อมูลของ {user_to_edit_email} เรียบร้อยแล้ว!")
+                                    time.sleep(1.5)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Error: {e}")
+            else: st.info("ไม่มีผู้ใช้งานในระบบ")
                 
         with tab_add:
             st.subheader("สร้างบัญชีผู้ใช้งานใหม่")
@@ -309,13 +344,11 @@ else:
         except Exception as e: st.error(f"Error: {e}")
 
     # ----------------------------------------------------------------------
-    # 📥 รับเข้า (Receive)  (V43 - ขยายช่อง Dropdown ให้ยาวเต็มบรรทัด)
+    # 📥 รับเข้า (Receive) 
     # ----------------------------------------------------------------------
     elif menu == "📥 รับเข้า (Receive)":
         st.header("📥 การรับเวชภัณฑ์เข้าคลัง (Receive)")
         meds = get_medicines()
-        
-        # 🌟 เทคนิคซ่อนรหัส: จับคู่รหัสยา กับ ชื่อยาเพียวๆ (ไม่เอารหัสมาโชว์หน้าเว็บ)
         med_dict = dict(zip(meds['id'], meds['generic_name'] + " (" + meds['unit'] + ")"))
         med_options = meds['id'].tolist()
         
@@ -327,15 +360,13 @@ else:
             for i in range(int(num_items)):
                 st.markdown(f"**รายการที่ {i+1}**")
                 
-                # 🌟 ช่องเลือกเวชภัณฑ์ถูกดึงออกมาอยู่นอกคอลัมน์ เพื่อให้ยาว 100% เต็มบรรทัด
                 selected_id = st.selectbox(
                     "เลือกเวชภัณฑ์", 
                     options=med_options, 
-                    format_func=lambda x: med_dict[x], # โชว์แค่ชื่อยา แต่หลังบ้านจำรหัส
+                    format_func=lambda x: med_dict[x], 
                     key=f"med_{i}"
                 )
                 
-                # 🌟 รายละเอียดอื่นๆ ถูกแบ่งเป็น 4 คอลัมน์ด้านล่าง
                 c1, c2, c3, c4 = st.columns(4)
                 with c1: lot = st.text_input("รหัส Lot", key=f"lot_{i}")
                 with c2: mfg = st.date_input("วันผลิต", key=f"mfg_{i}")
@@ -376,7 +407,6 @@ else:
         st.header("📤 การเบิกจ่ายเวชภัณฑ์ (Dispense)")
         df_inv = get_inventory_view()
         if not df_inv.empty:
-            # ไม่แสดงรหัสยาในการเบิกจ่าย
             df_inv['display_label'] = df_inv['generic_name'] + " | Lot: " + df_inv['lot_no'] + " | หมดอายุ: " + df_inv['exp_date'].astype(str) + " (เหลือ " + df_inv['qty'].astype(str) + " " + df_inv['unit'] + ")"
             st.info("💡 สามารถค้นหาและเลือกเวชภัณฑ์ได้หลายรายการพร้อมกัน เพื่อความรวดเร็วในการเบิกจ่าย")
             selected_labels = st.multiselect("ค้นหาและเลือกรายการเวชภัณฑ์ (เลือกได้มากกว่า 1 ล็อต)", df_inv['display_label'].tolist())
@@ -524,7 +554,6 @@ else:
                 c_add1, c_add2, c_add3 = st.columns([3, 1, 1])
                 with c_add1:
                     if not df_available.empty:
-                        # 🌟 ซ่อนรหัสยาตรงส่วนการขอเบิกด้วย
                         avail_dict = dict(zip(df_available['id'], df_available['generic_name'] + " (" + df_available['unit'] + ")"))
                         add_choice_id = st.selectbox(
                             "เลือกรายการเวชภัณฑ์:", 
@@ -800,7 +829,6 @@ else:
         
         meds = get_medicines()
         if not meds.empty:
-            # 🌟 ซ่อนรหัสในหน้า Stock Card
             med_dict = dict(zip(meds['id'], meds['generic_name'] + " (" + meds['unit'] + ")"))
             
             selected_id = st.selectbox(
@@ -916,7 +944,7 @@ else:
             if all_meds_data:
                 all_meds = pd.DataFrame(all_meds_data)
                 
-                # 🌟 ซ่อนรหัสในหน้าแก้ไขข้อมูลด้วย
+                # 🌟 ซ่อนรหัสในหน้าแก้ไขข้อมูล
                 med_dict = dict(zip(all_meds['id'], all_meds['generic_name'].fillna('-ไม่มีชื่อยา-') + " (" + all_meds['unit'].fillna('-') + ")"))
                 
                 selected_id_real = st.selectbox(

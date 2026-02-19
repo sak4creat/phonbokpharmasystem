@@ -309,7 +309,7 @@ else:
         except Exception as e: st.error(f"Error: {e}")
 
     # ----------------------------------------------------------------------
-    # 📊 สรุปยอดประจำเดือน และ รายงานขอเบิก (V36 - ระบบลบหายวับแบบ Bulletproof)
+    # 📊 สรุปยอดประจำเดือน และ รายงานขอเบิก 
     # ----------------------------------------------------------------------
     elif menu == "📊 สรุปยอด และ ขอเบิก":
         st.header("📊 สรุปยอด และ ขอเบิกเวชภัณฑ์")
@@ -383,9 +383,6 @@ else:
             else:
                 st.info("ยังไม่มีประวัติการทำรายการรับ-จ่ายในระบบ")
 
-        # ==========================================
-        # 🌟 แท็บที่ 2: รายงานขอเบิก (V36 - Instant Delete แบบปลิดทิ้ง)
-        # ==========================================
         with tab_reorder:
             st.subheader("🛒 จัดการและรายงานใบขอเบิกเวชภัณฑ์")
             
@@ -402,7 +399,6 @@ else:
 
                 low_stock_ids = df_all[df_all['qty'] <= df_all['min_stock']]['id'].tolist()
                 
-                # คำนวณยาที่จะแสดงในตาราง
                 base_ids = [id for id in low_stock_ids if id not in st.session_state.reorder_manual_removed]
                 table_med_ids = list(set(base_ids + st.session_state.reorder_manual_added))
                 
@@ -431,7 +427,6 @@ else:
                             st.rerun()
                             
                 with c_add3:
-                    # 🌟 เปลี่ยนคำตามที่ขอ
                     if st.button("🔄 ล้างรายการที่เพิ่มเอง", use_container_width=True):
                         st.session_state.reorder_manual_added = []
                         st.session_state.reorder_manual_removed = []
@@ -454,12 +449,10 @@ else:
                     df_display_reorder = df_table[['generic_name', 'unit', 'min_stock', 'qty', 'suggested_reorder']].copy()
                     df_display_reorder.insert(0, 'ลำดับ', range(1, len(df_display_reorder) + 1))
                     
-                    # 🌟 เปลี่ยนชื่อคอลัมน์เป็น "ลบรายการ"
                     df_display_reorder['ลบรายการ'] = False
                     
                     df_display_reorder.columns = ['ลำดับ', 'รายการ', 'หน่วยนับ', 'อัตราใช้ต่อเดือน', 'จำนวนคงเหลือ', 'จำนวนขอเบิก', 'ลบรายการ']
 
-                    # 🌟 ใส่ key="reorder_table" ให้ระบบจัดการล้างข้อมูลได้
                     edited_df = st.data_editor(
                         df_display_reorder,
                         hide_index=True,
@@ -477,16 +470,13 @@ else:
 
                     needs_rerun = False
                     
-                    # ตรวจจับการกดพิมพ์ตัวเลขและการติ๊กกล่องลบ
                     for idx, row in edited_df.iterrows():
                         med_name = row['รายการ']
                         med_id = df_all[df_all['generic_name'] == med_name]['id'].values[0]
                         
-                        # 1. จำตัวเลขที่พึ่งพิมพ์
                         if st.session_state.reorder_quantities.get(med_id) != row['จำนวนขอเบิก']:
                             st.session_state.reorder_quantities[med_id] = row['จำนวนขอเบิก']
                             
-                        # 2. ถ้าช่อง "ลบรายการ" โดนติ๊กถูก
                         if row['ลบรายการ'] == True:
                             if med_id in st.session_state.reorder_manual_added:
                                 st.session_state.reorder_manual_added.remove(med_id)
@@ -497,18 +487,15 @@ else:
                             if med_id in st.session_state.reorder_quantities:
                                 del st.session_state.reorder_quantities[med_id]
                                 
-                            needs_rerun = True # สั่งให้ระบบเตรียมรีเฟรชหน้าเว็บ
+                            needs_rerun = True 
 
-                    # 🌟 หัวใจสำคัญของการลบแล้วหายวับไปเลย: สั่งล้างหน่วยความจำตารางแล้วรีเฟรช 1 ที
                     if needs_rerun:
                         if "reorder_table" in st.session_state:
                             del st.session_state["reorder_table"]
                         st.rerun()
 
-                # --- ส่วนปุ่มดาวน์โหลดไฟล์ ---
                 if not df_table.empty:
                     st.divider()
-                    # เอาคอลัมน์ลบออกก่อนโหลดไฟล์
                     final_export_df = edited_df.drop(columns=['ลบรายการ']).copy()
                     final_export_df['ลำดับ'] = range(1, len(final_export_df) + 1) 
                     
@@ -537,7 +524,7 @@ else:
                 st.warning("ไม่พบข้อมูลเวชภัณฑ์ในระบบ")
 
     # ----------------------------------------------------------------------
-    # 🧾 ประวัติรับ-จ่าย (ตารางคลิกได้)
+    # 🧾 ประวัติรับ-จ่าย 
     # ----------------------------------------------------------------------
     elif menu == "🧾 ประวัติรับ-จ่าย":
         st.header("🧾 ประวัติการรับและเบิกจ่ายเวชภัณฑ์")
@@ -695,12 +682,14 @@ else:
         
         meds = get_medicines()
         if not meds.empty:
-            med_options = meds['id'] + " | " + meds['generic_name'] + " (" + meds['unit'] + ")"
-            selected_med = st.selectbox("ค้นหาและเลือกรายการเวชภัณฑ์ที่ต้องการดูประวัติ:", med_options)
+            meds['display_label'] = meds.apply(lambda row: f"{'-' if str(row['id']).startswith('SYS-') else row['id']} | {row['generic_name']} ({row['unit']})", axis=1)
+            med_dict = dict(zip(meds['display_label'], meds['id']))
             
-            if selected_med:
-                selected_id = selected_med.split(" | ")[0]
-                selected_name = selected_med.split(" | ")[1].split(" (")[0]
+            selected_med_label = st.selectbox("ค้นหาและเลือกรายการเวชภัณฑ์ที่ต้องการดูประวัติ:", meds['display_label'].tolist())
+            
+            if selected_med_label:
+                selected_id = med_dict[selected_med_label]
+                selected_name = meds[meds['id'] == selected_id]['generic_name'].values[0]
                 selected_unit = meds[meds['id'] == selected_id]['unit'].values[0]
                 
                 t_res = supabase.table("transactions").select("*").eq("medicine_id", selected_id).order("created_at", desc=False).execute()
@@ -814,7 +803,9 @@ else:
     elif menu == "📥 รับยาเข้า (Receive)":
         st.header("📥 การรับเวชภัณฑ์เข้าคลัง (Receive)")
         meds = get_medicines()
-        med_options = meds['id'] + " | " + meds['generic_name'] + " (" + meds['unit'] + ")"
+        meds['display_label'] = meds.apply(lambda row: f"{'-' if str(row['id']).startswith('SYS-') else row['id']} | {row['generic_name']} ({row['unit']})", axis=1)
+        med_dict = dict(zip(meds['display_label'], meds['id']))
+        med_options = meds['display_label'].tolist()
         
         num_items = st.number_input("จำนวนรายการเวชภัณฑ์ที่ต้องการรับเข้าพร้อมกัน", min_value=1, max_value=20, value=1)
         st.divider()
@@ -829,7 +820,7 @@ else:
                 with c3: mfg = st.date_input("วันผลิต", key=f"mfg_{i}")
                 with c4: exp = st.date_input("วันหมดอายุ", key=f"exp_{i}")
                 
-                selected_id = d_choice.split(" | ")[0]
+                selected_id = med_dict[d_choice] 
                 qty = st.number_input("จำนวนที่รับเข้า", min_value=1, key=f"qty_{i}")
                 st.markdown("---")
                 
@@ -860,7 +851,7 @@ else:
                     st.info("คำแนะนำ: โปรดตรวจสอบว่ารหัส Lot มีการซ้ำซ้อนในระบบหรือไม่")
 
     # ----------------------------------------------------------------------
-    # 📋 ข้อมูลยา (Master Data)
+    # 📋 ข้อมูลยา (Master Data) (V39 - แก้รหัสยาได้ตามใจชอบแล้ว!)
     # ----------------------------------------------------------------------
     elif menu == "📋 ข้อมูลยา (Master Data)":
         st.header("📋 จัดการข้อมูลเวชภัณฑ์หลัก (Master Data)")
@@ -869,66 +860,119 @@ else:
         
         with tab1:
             st.info("แสดงเฉพาะรายการเวชภัณฑ์ที่เปิดใช้งานอยู่ (Active) ในระบบ")
-            st.dataframe(get_medicines(), use_container_width=True)
+            df_meds = get_medicines()
+            if not df_meds.empty:
+                df_meds['id'] = df_meds['id'].apply(lambda x: "-" if str(x).startswith("SYS-") else x)
+                df_meds.insert(0, 'ลำดับ', range(1, len(df_meds) + 1))
+                df_meds.rename(columns={'id': 'รหัสยามาตรฐาน', 'generic_name': 'ชื่อสามัญ', 'unit': 'หน่วยนับ', 'category': 'หมวดหมู่', 'min_stock': 'จุดสั่งซื้อ', 'is_active': 'สถานะ Active'}, inplace=True)
+                st.dataframe(df_meds[['ลำดับ', 'รหัสยามาตรฐาน', 'ชื่อสามัญ', 'หน่วยนับ', 'หมวดหมู่', 'จุดสั่งซื้อ', 'สถานะ Active']], use_container_width=True, hide_index=True)
+            else:
+                st.info("ยังไม่มีข้อมูลเวชภัณฑ์")
 
         with tab2:
             with st.form("new_med"):
                 c1, c2 = st.columns(2)
-                nid = c1.text_input("รหัสเวชภัณฑ์ (เช่น DRUG009)")
-                nname = c2.text_input("ชื่อสามัญ (Generic Name)")
-                nunit = c1.text_input("หน่วยนับ (เช่น เม็ด, ขวด, หลอด)")
+                nid_input = c1.text_input("รหัสยามาตรฐาน (เว้นว่างได้ ระบบจะแสดงผลเป็น - ให้อัตโนมัติ)")
+                nname = c2.text_input("ชื่อสามัญ (Generic Name) *บังคับ")
+                nunit = c1.text_input("หน่วยนับ (เช่น เม็ด, ขวด) *บังคับ")
                 ncat = c2.selectbox("หมวดหมู่", ["ยาในบัญชี", "ยานอกบัญชี", "เวชภัณฑ์/วัสดุ"])
-                nmin = st.number_input("จุดสั่งซื้อ (Min Stock) เพื่อแจ้งเตือนเมื่อใกล้หมด", min_value=0, value=100)
+                nmin = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=100)
                 
                 if st.form_submit_button("บันทึกรายการใหม่", use_container_width=True):
-                    if nid and nname and nunit:
+                    if nname and nunit:
+                        final_nid = nid_input.strip() if nid_input.strip() != "" else f"SYS-{int(time.time())}"
                         try:
-                            supabase.table("medicines").insert({"id": nid, "generic_name": nname, "unit": nunit, "category": ncat, "min_stock": nmin, "is_active": True}).execute()
+                            supabase.table("medicines").insert({"id": final_nid, "generic_name": nname, "unit": nunit, "category": ncat, "min_stock": nmin, "is_active": True}).execute()
                             st.success("เพิ่มข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
-                        except: st.error("รหัสเวชภัณฑ์ซ้ำ หรือกรอกข้อมูลไม่ถูกต้อง")
-                    else: st.warning("กรุณากรอกรหัส ชื่อเวชภัณฑ์ และหน่วยนับให้ครบถ้วน")
+                        except: st.error("รหัสยามาตรฐานซ้ำ หรือเกิดข้อผิดพลาดจากฐานข้อมูล")
+                    else: st.warning("กรุณากรอกชื่อเวชภัณฑ์ และหน่วยนับ ให้ครบถ้วน")
                         
         with tab3:
             all_meds_data = supabase.table("medicines").select("*").execute().data
             if all_meds_data:
                 all_meds = pd.DataFrame(all_meds_data)
                 
-                all_meds['display_name'] = all_meds['id'].astype(str) + " | " + all_meds['generic_name'].fillna('-ไม่มีชื่อยา-').astype(str)
+                all_meds['display_id'] = all_meds['id'].apply(lambda x: "-" if str(x).startswith("SYS-") else x)
+                all_meds['display_name'] = all_meds['display_id'].astype(str) + " | " + all_meds['generic_name'].fillna('-ไม่มีชื่อยา-').astype(str)
                 
-                edit_choice = st.selectbox("ค้นหาและเลือกรายการที่ต้องการแก้ไข หรือ ลบ:", all_meds['display_name'])
+                choice_to_id = dict(zip(all_meds['display_name'], all_meds['id']))
+                
+                edit_choice = st.selectbox("ค้นหาและเลือกรายการที่ต้องการแก้ไข หรือ ลบ:", all_meds['display_name'].tolist())
                 
                 if edit_choice:
-                    selected_id = edit_choice.split(" | ")[0]
-                    med_info = all_meds[all_meds['id'] == selected_id].iloc[0]
+                    selected_id_real = choice_to_id[edit_choice]
+                    med_info = all_meds[all_meds['id'] == selected_id_real].iloc[0]
                     
                     st.divider()
                     
                     with st.form("edit_med_form"):
-                        st.caption(f"รหัสเวชภัณฑ์: {selected_id} (ไม่สามารถแก้ไขรหัสได้)")
                         c1, c2 = st.columns(2)
                         
+                        # 🌟 ปลดล็อกให้แก้ไขรหัสได้แล้ว!
+                        display_nid = "" if str(selected_id_real).startswith("SYS-") else selected_id_real
+                        e_id = c1.text_input("รหัสยามาตรฐาน (แก้ไขหรือเพิ่มใหม่ได้เลย หากเว้นว่างระบบจะใช้รหัสอัตโนมัติ)", value=display_nid)
+                        
                         old_name = "" if pd.isna(med_info['generic_name']) else med_info['generic_name']
-                        e_name = c1.text_input("ชื่อสามัญ (Generic Name)", value=old_name)
+                        e_name = c2.text_input("ชื่อสามัญ (Generic Name)", value=old_name)
                         
                         old_unit = "" if pd.isna(med_info['unit']) else med_info['unit']
-                        e_unit = c2.text_input("หน่วยนับ", value=old_unit)
+                        e_unit = c1.text_input("หน่วยนับ", value=old_unit)
                         
                         cat_options = ["ยาในบัญชี", "ยานอกบัญชี", "เวชภัณฑ์/วัสดุ"]
                         try: cat_idx = cat_options.index(med_info['category'])
                         except: cat_idx = 0
-                        e_cat = c1.selectbox("หมวดหมู่", cat_options, index=cat_idx)
+                        e_cat = c2.selectbox("หมวดหมู่", cat_options, index=cat_idx)
                         
                         min_stock_val = 0 if pd.isna(med_info.get('min_stock')) else int(med_info.get('min_stock', 0))
-                        e_min = c2.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val)
+                        e_min = c1.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val)
                         e_active = st.checkbox("เปิดใช้งานรายการนี้ (นำไปรับ/เบิกได้ปกติ)", value=bool(med_info['is_active']))
                         
                         if st.form_submit_button("บันทึกการแก้ไข", use_container_width=True):
                             if e_name and e_unit:
+                                final_new_id = e_id.strip()
+                                if final_new_id == "":
+                                    # ถ้าลบทิ้งให้เป็นค่าว่าง ให้กลับไปใช้ SYS-
+                                    if str(selected_id_real).startswith("SYS-"):
+                                        final_new_id = selected_id_real
+                                    else:
+                                        final_new_id = f"SYS-{int(time.time())}"
+                                        
                                 try:
-                                    supabase.table("medicines").update({"generic_name": e_name, "unit": e_unit, "category": e_cat, "min_stock": e_min, "is_active": e_active}).eq("id", selected_id).execute()
-                                    st.success(f"อัปเดตข้อมูลของ {selected_id} สำเร็จ!"); time.sleep(1); st.rerun()
-                                except Exception as e: st.error(f"เกิดข้อผิดพลาดในการอัปเดต: {e}")
-                            else: st.warning("กรุณากรอกชื่อเวชภัณฑ์และหน่วยนับให้ครบถ้วน")
+                                    if final_new_id != selected_id_real:
+                                        # 🌟 ท่าไม้ตาย: ย้ายข้อมูลทะลุกฎ Database อัตโนมัติ
+                                        # 1. เช็คซ้ำก่อน
+                                        check = supabase.table("medicines").select("id").eq("id", final_new_id).execute()
+                                        if check.data:
+                                            st.error(f"❌ เปลี่ยนรหัสไม่ได้! รหัส '{final_new_id}' มีซ้ำอยู่ในระบบแล้ว")
+                                            st.stop()
+                                            
+                                        # 2. สร้างยาตัวใหม่ด้วยรหัสใหม่
+                                        supabase.table("medicines").insert({
+                                            "id": final_new_id, "generic_name": e_name, "unit": e_unit, 
+                                            "category": e_cat, "min_stock": e_min, "is_active": e_active
+                                        }).execute()
+                                        
+                                        # 3. ย้ายของในคลังไปรหัสใหม่
+                                        supabase.table("inventory").update({"medicine_id": final_new_id}).eq("medicine_id", selected_id_real).execute()
+                                        
+                                        # 4. ย้ายประวัติรับจ่ายไปรหัสใหม่
+                                        supabase.table("transactions").update({"medicine_id": final_new_id}).eq("medicine_id", selected_id_real).execute()
+                                        
+                                        # 5. ลบรหัสเก่าทิ้ง (จบปิ๊ง!)
+                                        supabase.table("medicines").delete().eq("id", selected_id_real).execute()
+                                        
+                                    else:
+                                        # อัปเดตข้อมูลปกติถ้ารหัสเดิม
+                                        supabase.table("medicines").update({
+                                            "generic_name": e_name, "unit": e_unit, 
+                                            "category": e_cat, "min_stock": e_min, "is_active": e_active
+                                        }).eq("id", selected_id_real).execute()
+                                        
+                                    st.success(f"✅ อัปเดตข้อมูลสำเร็จ!"); time.sleep(1.5); st.rerun()
+                                except Exception as e:
+                                    st.error(f"เกิดข้อผิดพลาดในการอัปเดต: {e}")
+                            else:
+                                st.warning("กรุณากรอกชื่อเวชภัณฑ์และหน่วยนับให้ครบถ้วน")
                     
                     st.divider()
                     st.markdown("#### ลบข้อมูลถาวร")
@@ -941,8 +985,8 @@ else:
                         if st.button("ลบรายการเวชภัณฑ์ถาวร", type="primary", use_container_width=True):
                             if confirm_del:
                                 try:
-                                    supabase.table("medicines").delete().eq("id", selected_id).execute()
-                                    st.success(f"ลบรายการ {selected_id} ออกจากระบบเรียบร้อยแล้ว!")
+                                    supabase.table("medicines").delete().eq("id", selected_id_real).execute()
+                                    st.success(f"ลบรายการออกจากระบบเรียบร้อยแล้ว!")
                                     time.sleep(1.5)
                                     st.rerun()
                                 except Exception as e:

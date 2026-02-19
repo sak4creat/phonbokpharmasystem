@@ -92,7 +92,6 @@ def get_inventory_view():
     merged = pd.merge(inv, meds, left_on="medicine_id", right_on="id", how="left", suffixes=('', '_med'))
     return merged[merged['qty'] > 0]
 
-# 🌟 V47 - อัปเกรดขั้นสุด: ตัดช่องว่างซ่อนเร้นและแปลงพิมพ์เล็กทั้งหมดเพื่อจับคู่ชื่อ
 def map_user_names(df, col_name='user_name'):
     if df.empty or col_name not in df.columns: return df
     try:
@@ -105,7 +104,6 @@ def map_user_names(df, col_name='user_name'):
                 (prof_df['full_name'].astype(str).str.strip() != 'None')
             ]
             
-            # สร้าง Dictionary โดยตัดช่องว่างและทำเป็นพิมพ์เล็กทั้ง 2 ฝั่งเพื่อเป็นกุญแจค้นหา
             email_to_name = {}
             for e, n in zip(valid_prof['email'], valid_prof['full_name']):
                 clean_e = str(e).strip().lower()
@@ -113,7 +111,6 @@ def map_user_names(df, col_name='user_name'):
                 
             def replace_name(val):
                 if pd.isna(val): return val
-                # ทำความสะอาดข้อมูลในตารางก่อนเทียบ
                 clean_val = str(val).strip().lower()
                 if clean_val in email_to_name:
                     return email_to_name[clean_val]
@@ -378,6 +375,7 @@ else:
     elif menu == "📥 รับเข้า (Receive)":
         st.header("📥 การรับเวชภัณฑ์เข้าคลัง (Receive)")
         meds = get_medicines()
+        
         med_dict = dict(zip(meds['id'], meds['generic_name'] + " (" + meds['unit'] + ")"))
         med_options = meds['id'].tolist()
         
@@ -486,7 +484,8 @@ else:
     elif menu == "📊 สรุปยอด และ ขอเบิก":
         st.header("📊 สรุปยอด และ ขอเบิกเวชภัณฑ์")
         
-        tab_summary, tab_reorder = st.tabs(["📅 สรุปยอดรับ-จ่าย ประจำเดือน", "🛒 รายงานขอเบิก (ต่ำกว่าจุดสั่งซื้อ)"])
+        # 🌟 V48 - แก้ไขชื่อแท็บ ตัดคำว่า (ต่ำกว่าจุดสั่งซื้อ) ออก
+        tab_summary, tab_reorder = st.tabs(["📅 สรุปยอดรับ-จ่าย ประจำเดือน", "🛒 รายงานขอเบิก"])
 
         with tab_summary:
             st.caption("รายงานสรุปยอดการรับเข้า เบิกจ่ายในแต่ละเดือน และยอดคงเหลือปัจจุบัน แยกตามรายการยา")
@@ -873,7 +872,6 @@ else:
                 t_res = supabase.table("transactions").select("*").eq("medicine_id", selected_id).order("created_at", desc=False).execute()
                 df_t = pd.DataFrame(t_res.data)
                 
-                # 🌟 นำระบบแปลงอีเมลมาใช้กับตารางนี้ด้วย!
                 df_t = map_user_names(df_t)
                 
                 i_res = supabase.table("inventory").select("lot_no, exp_date, qty").eq("medicine_id", selected_id).execute()

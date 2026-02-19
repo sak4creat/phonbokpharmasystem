@@ -157,7 +157,6 @@ else:
         if st.button("ออกจากระบบ", use_container_width=True): logout_user()
         st.divider()
 
-    # 🌟 V42 - สลับตำแหน่งและเปลี่ยนชื่อเมนูตรงนี้
     menu_options = [
         "🖥️ แดชบอร์ด", 
         "📥 รับเข้า (Receive)", 
@@ -310,14 +309,15 @@ else:
         except Exception as e: st.error(f"Error: {e}")
 
     # ----------------------------------------------------------------------
-    # 📥 รับเข้า (Receive)  <-- ย้ายมารองจากแดชบอร์ด
+    # 📥 รับเข้า (Receive)  (V43 - ขยายช่อง Dropdown ให้ยาวเต็มบรรทัด)
     # ----------------------------------------------------------------------
     elif menu == "📥 รับเข้า (Receive)":
         st.header("📥 การรับเวชภัณฑ์เข้าคลัง (Receive)")
         meds = get_medicines()
-        meds['display_label'] = meds.apply(lambda row: f"{'-' if str(row['id']).startswith('SYS-') else row['id']} | {row['generic_name']} ({row['unit']})", axis=1)
-        med_dict = dict(zip(meds['display_label'], meds['id']))
-        med_options = meds['display_label'].tolist()
+        
+        # 🌟 เทคนิคซ่อนรหัส: จับคู่รหัสยา กับ ชื่อยาเพียวๆ (ไม่เอารหัสมาโชว์หน้าเว็บ)
+        med_dict = dict(zip(meds['id'], meds['generic_name'] + " (" + meds['unit'] + ")"))
+        med_options = meds['id'].tolist()
         
         num_items = st.number_input("จำนวนรายการเวชภัณฑ์ที่ต้องการรับเข้าพร้อมกัน", min_value=1, max_value=20, value=1)
         st.divider()
@@ -326,14 +326,21 @@ else:
             receive_data = []
             for i in range(int(num_items)):
                 st.markdown(f"**รายการที่ {i+1}**")
-                c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
-                with c1: d_choice = st.selectbox("เลือกเวชภัณฑ์", med_options, key=f"med_{i}")
-                with c2: lot = st.text_input("รหัส Lot", key=f"lot_{i}")
-                with c3: mfg = st.date_input("วันผลิต", key=f"mfg_{i}")
-                with c4: exp = st.date_input("วันหมดอายุ", key=f"exp_{i}")
                 
-                selected_id = med_dict[d_choice] 
-                qty = st.number_input("จำนวนที่รับเข้า", min_value=1, key=f"qty_{i}")
+                # 🌟 ช่องเลือกเวชภัณฑ์ถูกดึงออกมาอยู่นอกคอลัมน์ เพื่อให้ยาว 100% เต็มบรรทัด
+                selected_id = st.selectbox(
+                    "เลือกเวชภัณฑ์", 
+                    options=med_options, 
+                    format_func=lambda x: med_dict[x], # โชว์แค่ชื่อยา แต่หลังบ้านจำรหัส
+                    key=f"med_{i}"
+                )
+                
+                # 🌟 รายละเอียดอื่นๆ ถูกแบ่งเป็น 4 คอลัมน์ด้านล่าง
+                c1, c2, c3, c4 = st.columns(4)
+                with c1: lot = st.text_input("รหัส Lot", key=f"lot_{i}")
+                with c2: mfg = st.date_input("วันผลิต", key=f"mfg_{i}")
+                with c3: exp = st.date_input("วันหมดอายุ", key=f"exp_{i}")
+                with c4: qty = st.number_input("จำนวนรับเข้า", min_value=1, key=f"qty_{i}")
                 st.markdown("---")
                 
                 final_lot = lot if lot.strip() != "" else "-"
@@ -363,12 +370,13 @@ else:
                     st.info("คำแนะนำ: โปรดตรวจสอบว่ารหัส Lot มีการซ้ำซ้อนในระบบหรือไม่")
 
     # ----------------------------------------------------------------------
-    # 📤 เบิกจ่าย (Dispense) <-- ย้ายมาอยู่ล่างรับเข้า
+    # 📤 เบิกจ่าย (Dispense)
     # ----------------------------------------------------------------------
     elif menu == "📤 เบิกจ่าย (Dispense)":
         st.header("📤 การเบิกจ่ายเวชภัณฑ์ (Dispense)")
         df_inv = get_inventory_view()
         if not df_inv.empty:
+            # ไม่แสดงรหัสยาในการเบิกจ่าย
             df_inv['display_label'] = df_inv['generic_name'] + " | Lot: " + df_inv['lot_no'] + " | หมดอายุ: " + df_inv['exp_date'].astype(str) + " (เหลือ " + df_inv['qty'].astype(str) + " " + df_inv['unit'] + ")"
             st.info("💡 สามารถค้นหาและเลือกเวชภัณฑ์ได้หลายรายการพร้อมกัน เพื่อความรวดเร็วในการเบิกจ่าย")
             selected_labels = st.multiselect("ค้นหาและเลือกรายการเวชภัณฑ์ (เลือกได้มากกว่า 1 ล็อต)", df_inv['display_label'].tolist())
@@ -516,19 +524,24 @@ else:
                 c_add1, c_add2, c_add3 = st.columns([3, 1, 1])
                 with c_add1:
                     if not df_available.empty:
-                        df_available['display'] = df_available['generic_name'] + " (" + df_available['unit'] + ")"
-                        add_choice = st.selectbox("เลือกรายการเวชภัณฑ์:", ["-- เลือกรายการเวชภัณฑ์ --"] + df_available['display'].tolist(), label_visibility="collapsed")
+                        # 🌟 ซ่อนรหัสยาตรงส่วนการขอเบิกด้วย
+                        avail_dict = dict(zip(df_available['id'], df_available['generic_name'] + " (" + df_available['unit'] + ")"))
+                        add_choice_id = st.selectbox(
+                            "เลือกรายการเวชภัณฑ์:", 
+                            options=[None] + df_available['id'].tolist(),
+                            format_func=lambda x: "-- เลือกรายการเวชภัณฑ์ --" if x is None else avail_dict[x],
+                            label_visibility="collapsed"
+                        )
                     else:
-                        add_choice = "-- เลือกรายการเวชภัณฑ์ --"
+                        add_choice_id = None
                         st.selectbox("เลือกรายการเวชภัณฑ์:", ["(เวชภัณฑ์ทุกตัวอยู่ในตารางขอเบิกหมดแล้ว)"], disabled=True, label_visibility="collapsed")
                 
                 with c_add2:
                     if st.button("➕ เพิ่มลงตาราง", use_container_width=True):
-                        if add_choice != "-- เลือกรายการเวชภัณฑ์ --":
-                            selected_id = df_available[df_available['display'] == add_choice]['id'].values[0]
-                            st.session_state.reorder_manual_added.append(selected_id)
-                            if selected_id in st.session_state.reorder_manual_removed:
-                                st.session_state.reorder_manual_removed.remove(selected_id)
+                        if add_choice_id is not None:
+                            st.session_state.reorder_manual_added.append(add_choice_id)
+                            if add_choice_id in st.session_state.reorder_manual_removed:
+                                st.session_state.reorder_manual_removed.remove(add_choice_id)
                             st.rerun()
                             
                 with c_add3:
@@ -787,13 +800,16 @@ else:
         
         meds = get_medicines()
         if not meds.empty:
-            meds['display_label'] = meds.apply(lambda row: f"{'-' if str(row['id']).startswith('SYS-') else row['id']} | {row['generic_name']} ({row['unit']})", axis=1)
-            med_dict = dict(zip(meds['display_label'], meds['id']))
+            # 🌟 ซ่อนรหัสในหน้า Stock Card
+            med_dict = dict(zip(meds['id'], meds['generic_name'] + " (" + meds['unit'] + ")"))
             
-            selected_med_label = st.selectbox("ค้นหาและเลือกรายการเวชภัณฑ์ที่ต้องการดูประวัติ:", meds['display_label'].tolist())
+            selected_id = st.selectbox(
+                "ค้นหาและเลือกรายการเวชภัณฑ์ที่ต้องการดูประวัติ:", 
+                options=meds['id'].tolist(),
+                format_func=lambda x: med_dict[x]
+            )
             
-            if selected_med_label:
-                selected_id = med_dict[selected_med_label]
+            if selected_id:
                 selected_name = meds[meds['id'] == selected_id]['generic_name'].values[0]
                 selected_unit = meds[meds['id'] == selected_id]['unit'].values[0]
                 
@@ -900,15 +916,16 @@ else:
             if all_meds_data:
                 all_meds = pd.DataFrame(all_meds_data)
                 
-                all_meds['display_id'] = all_meds['id'].apply(lambda x: "-" if str(x).startswith("SYS-") else x)
-                all_meds['display_name'] = all_meds['display_id'].astype(str) + " | " + all_meds['generic_name'].fillna('-ไม่มีชื่อยา-').astype(str)
+                # 🌟 ซ่อนรหัสในหน้าแก้ไขข้อมูลด้วย
+                med_dict = dict(zip(all_meds['id'], all_meds['generic_name'].fillna('-ไม่มีชื่อยา-') + " (" + all_meds['unit'].fillna('-') + ")"))
                 
-                choice_to_id = dict(zip(all_meds['display_name'], all_meds['id']))
+                selected_id_real = st.selectbox(
+                    "ค้นหาและเลือกรายการที่ต้องการแก้ไข หรือ ลบ:", 
+                    options=all_meds['id'].tolist(),
+                    format_func=lambda x: med_dict[x]
+                )
                 
-                edit_choice = st.selectbox("ค้นหาและเลือกรายการที่ต้องการแก้ไข หรือ ลบ:", all_meds['display_name'].tolist())
-                
-                if edit_choice:
-                    selected_id_real = choice_to_id[edit_choice]
+                if selected_id_real:
                     med_info = all_meds[all_meds['id'] == selected_id_real].iloc[0]
                     
                     st.divider()

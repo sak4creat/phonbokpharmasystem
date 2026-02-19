@@ -39,6 +39,8 @@ if 'role' not in st.session_state: st.session_state.role = None
 if 'user_email' not in st.session_state: st.session_state.user_email = None
 if 'full_name' not in st.session_state: st.session_state.full_name = None
 if 'reorder_manual_added' not in st.session_state: st.session_state.reorder_manual_added = []
+if 'reorder_manual_removed' not in st.session_state: st.session_state.reorder_manual_removed = []
+if 'reorder_quantities' not in st.session_state: st.session_state.reorder_quantities = {}
 
 THAI_MONTHS = {'01': 'มกราคม', '02': 'กุมภาพันธ์', '03': 'มีนาคม', '04': 'เมษายน', '05': 'พฤษภาคม', '06': 'มิถุนายน', '07': 'กรกฎาคม', '08': 'สิงหาคม', '09': 'กันยายน', '10': 'ตุลาคม', '11': 'พฤศจิกายน', '12': 'ธันวาคม'}
 
@@ -74,6 +76,10 @@ def logout_user():
     st.session_state.role = None
     st.session_state.full_name = None
     st.session_state.reorder_manual_added = []
+    st.session_state.reorder_manual_removed = []
+    st.session_state.reorder_quantities = {}
+    if "reorder_table" in st.session_state:
+        del st.session_state["reorder_table"]
     st.rerun()
 
 def get_medicines():
@@ -303,7 +309,7 @@ else:
         except Exception as e: st.error(f"Error: {e}")
 
     # ----------------------------------------------------------------------
-    # 📊 สรุปยอดประจำเดือน และ รายงานขอเบิก (V34 - อัปเกรดช่องติ๊กถูกลบรายการท้ายตาราง)
+    # 📊 สรุปยอดประจำเดือน และ รายงานขอเบิก (V36 - ระบบลบหายวับแบบ Bulletproof)
     # ----------------------------------------------------------------------
     elif menu == "📊 สรุปยอด และ ขอเบิก":
         st.header("📊 สรุปยอด และ ขอเบิกเวชภัณฑ์")
@@ -378,7 +384,7 @@ else:
                 st.info("ยังไม่มีประวัติการทำรายการรับ-จ่ายในระบบ")
 
         # ==========================================
-        # 🌟 แท็บที่ 2: รายงานขอเบิก (V34 - ระบบ Checkbox ลบท้ายตาราง)
+        # 🌟 แท็บที่ 2: รายงานขอเบิก (V36 - Instant Delete แบบปลิดทิ้ง)
         # ==========================================
         with tab_reorder:
             st.subheader("🛒 จัดการและรายงานใบขอเบิกเวชภัณฑ์")
@@ -395,7 +401,10 @@ else:
                     df_all['qty'] = 0
 
                 low_stock_ids = df_all[df_all['qty'] <= df_all['min_stock']]['id'].tolist()
-                table_med_ids = list(set(low_stock_ids + st.session_state.reorder_manual_added))
+                
+                # คำนวณยาที่จะแสดงในตาราง
+                base_ids = [id for id in low_stock_ids if id not in st.session_state.reorder_manual_removed]
+                table_med_ids = list(set(base_ids + st.session_state.reorder_manual_added))
                 
                 df_table = df_all[df_all['id'].isin(table_med_ids)].copy()
                 df_available = df_all[~df_all['id'].isin(table_med_ids)].copy()
@@ -417,51 +426,91 @@ else:
                         if add_choice != "-- เลือกรายการเวชภัณฑ์ --":
                             selected_id = df_available[df_available['display'] == add_choice]['id'].values[0]
                             st.session_state.reorder_manual_added.append(selected_id)
+                            if selected_id in st.session_state.reorder_manual_removed:
+                                st.session_state.reorder_manual_removed.remove(selected_id)
                             st.rerun()
                             
                 with c_add3:
-                    if st.button("🔄 ล้างที่เพิ่มเอง", use_container_width=True):
+                    # 🌟 เปลี่ยนคำตามที่ขอ
+                    if st.button("🔄 ล้างรายการที่เพิ่มเอง", use_container_width=True):
                         st.session_state.reorder_manual_added = []
+                        st.session_state.reorder_manual_removed = []
+                        st.session_state.reorder_quantities = {}
+                        if "reorder_table" in st.session_state:
+                            del st.session_state["reorder_table"]
                         st.rerun()
 
                 st.divider()
 
                 st.markdown("##### 📝 ตารางใบขอเบิก และดาวน์โหลดไฟล์")
-                # 🌟 คำอธิบายการใช้งานแบบใหม่
-                st.caption("💡 **วิธีแก้ไขจำนวน:** ใช้เมาส์คลิกที่ตัวเลขในช่อง 'จำนวนขอเบิก' เพื่อพิมพ์ตัวเลขใหม่ <br>💡 **วิธียกเลิก/ลบรายการ:** เพียงแค่ **ติ๊กเครื่องหมายถูก ❌ ในช่องขวาสุด** รายการนั้นจะถูกตัดออกจากไฟล์ทันทีตอนกดดาวน์โหลดครับ", unsafe_allow_html=True)
+                st.caption("💡 **วิธีแก้ไขจำนวน:** คลิกที่ตัวเลขในช่อง 'จำนวนขอเบิก' เพื่อพิมพ์แก้ได้เลย <br>💡 **วิธีลบรายการ:** ติ๊กเครื่องหมายถูกที่ช่อง **'ลบรายการ'** ท้ายตาราง แถวนั้นจะหายวับไปทันทีครับ!", unsafe_allow_html=True)
                 
                 if not df_table.empty:
-                    df_table['suggested_reorder'] = df_table['min_stock']
+                    df_table['suggested_reorder'] = df_table.apply(
+                        lambda row: st.session_state.reorder_quantities.get(row['id'], row['min_stock']), 
+                        axis=1
+                    )
 
                     df_display_reorder = df_table[['generic_name', 'unit', 'min_stock', 'qty', 'suggested_reorder']].copy()
                     df_display_reorder.insert(0, 'ลำดับ', range(1, len(df_display_reorder) + 1))
                     
-                    # 🌟 เพิ่มคอลัมน์พิเศษสำหรับให้ติ๊กลบ
-                    df_display_reorder['❌ ลบทิ้ง'] = False
+                    # 🌟 เปลี่ยนชื่อคอลัมน์เป็น "ลบรายการ"
+                    df_display_reorder['ลบรายการ'] = False
                     
-                    df_display_reorder.columns = ['ลำดับ', 'รายการ', 'หน่วยนับ', 'อัตราใช้ต่อเดือน', 'จำนวนคงเหลือ', 'จำนวนขอเบิก', '❌ ลบทิ้ง']
+                    df_display_reorder.columns = ['ลำดับ', 'รายการ', 'หน่วยนับ', 'อัตราใช้ต่อเดือน', 'จำนวนคงเหลือ', 'จำนวนขอเบิก', 'ลบรายการ']
 
-                    # ใช้ data_editor และตั้งค่าช่องลบทิ้งให้เป็น Checkbox
+                    # 🌟 ใส่ key="reorder_table" ให้ระบบจัดการล้างข้อมูลได้
                     edited_df = st.data_editor(
                         df_display_reorder,
                         hide_index=True,
                         use_container_width=True,
-                        disabled=["ลำดับ", "รายการ", "หน่วยนับ", "อัตราใช้ต่อเดือน", "จำนวนคงเหลือ"], # ล็อกช่องที่ไม่ให้แก้
+                        disabled=["ลำดับ", "รายการ", "หน่วยนับ", "อัตราใช้ต่อเดือน", "จำนวนคงเหลือ"], 
                         column_config={
-                            "❌ ลบทิ้ง": st.column_config.CheckboxColumn(
-                                "❌ ลบทิ้ง",
-                                help="ติ๊กถูกช่องนี้ ระบบจะตัดรายการนี้ทิ้ง ไม่เอาไปรวมในไฟล์ Excel ครับ",
+                            "ลบรายการ": st.column_config.CheckboxColumn(
+                                "ลบรายการ",
+                                help="ติ๊กถูกช่องนี้ แถวนี้จะถูกลบทิ้งทันที",
                                 default=False,
                             )
-                        }
+                        },
+                        key="reorder_table" 
                     )
 
-                    st.divider()
+                    needs_rerun = False
                     
-                    # 🌟 กรองรายการที่ผู้ใช้ "ติ๊กถูก" ว่าจะลบทิ้ง ออกจากข้อมูลที่จะไปสร้างเป็น Excel
-                    final_export_df = edited_df[edited_df['❌ ลบทิ้ง'] == False].copy()
-                    final_export_df = final_export_df.drop(columns=['❌ ลบทิ้ง']) # ลบคอลัมน์ checkbox ออกก่อนทำ Excel
-                    final_export_df['ลำดับ'] = range(1, len(final_export_df) + 1) # รันเลขลำดับ 1, 2, 3... ใหม่ให้สวยงาม
+                    # ตรวจจับการกดพิมพ์ตัวเลขและการติ๊กกล่องลบ
+                    for idx, row in edited_df.iterrows():
+                        med_name = row['รายการ']
+                        med_id = df_all[df_all['generic_name'] == med_name]['id'].values[0]
+                        
+                        # 1. จำตัวเลขที่พึ่งพิมพ์
+                        if st.session_state.reorder_quantities.get(med_id) != row['จำนวนขอเบิก']:
+                            st.session_state.reorder_quantities[med_id] = row['จำนวนขอเบิก']
+                            
+                        # 2. ถ้าช่อง "ลบรายการ" โดนติ๊กถูก
+                        if row['ลบรายการ'] == True:
+                            if med_id in st.session_state.reorder_manual_added:
+                                st.session_state.reorder_manual_added.remove(med_id)
+                            else:
+                                if med_id not in st.session_state.reorder_manual_removed:
+                                    st.session_state.reorder_manual_removed.append(med_id)
+                                    
+                            if med_id in st.session_state.reorder_quantities:
+                                del st.session_state.reorder_quantities[med_id]
+                                
+                            needs_rerun = True # สั่งให้ระบบเตรียมรีเฟรชหน้าเว็บ
+
+                    # 🌟 หัวใจสำคัญของการลบแล้วหายวับไปเลย: สั่งล้างหน่วยความจำตารางแล้วรีเฟรช 1 ที
+                    if needs_rerun:
+                        if "reorder_table" in st.session_state:
+                            del st.session_state["reorder_table"]
+                        st.rerun()
+
+                # --- ส่วนปุ่มดาวน์โหลดไฟล์ ---
+                if not df_table.empty:
+                    st.divider()
+                    # เอาคอลัมน์ลบออกก่อนโหลดไฟล์
+                    final_export_df = edited_df.drop(columns=['ลบรายการ']).copy()
+                    final_export_df['ลำดับ'] = range(1, len(final_export_df) + 1) 
                     
                     buffer = io.BytesIO()
                     try:

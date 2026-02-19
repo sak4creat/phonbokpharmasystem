@@ -484,7 +484,6 @@ else:
     elif menu == "📊 สรุปยอด และ ขอเบิก":
         st.header("📊 สรุปยอด และ ขอเบิกเวชภัณฑ์")
         
-        # 🌟 V48 - แก้ไขชื่อแท็บ ตัดคำว่า (ต่ำกว่าจุดสั่งซื้อ) ออก
         tab_summary, tab_reorder = st.tabs(["📅 สรุปยอดรับ-จ่าย ประจำเดือน", "🛒 รายงานขอเบิก"])
 
         with tab_summary:
@@ -576,43 +575,8 @@ else:
                 df_table = df_all[df_all['id'].isin(table_med_ids)].copy()
                 df_available = df_all[~df_all['id'].isin(table_med_ids)].copy()
 
-                st.markdown("##### ➕ เพิ่มรายการขอเบิก (นอกเหนือจากที่ระบบแนะนำ)")
-                st.info("💡 กล่องค้นหาด้านล่าง จะแสดงเฉพาะ 'รายชื่อยาที่ยังไม่มีอยู่ในตาราง' เท่านั้นครับ")
-                
-                c_add1, c_add2, c_add3 = st.columns([3, 1, 1])
-                with c_add1:
-                    if not df_available.empty:
-                        avail_dict = dict(zip(df_available['id'], df_available['generic_name'] + " (" + df_available['unit'] + ")"))
-                        add_choice_id = st.selectbox(
-                            "เลือกรายการเวชภัณฑ์:", 
-                            options=[None] + df_available['id'].tolist(),
-                            format_func=lambda x: "-- เลือกรายการเวชภัณฑ์ --" if x is None else avail_dict[x],
-                            label_visibility="collapsed"
-                        )
-                    else:
-                        add_choice_id = None
-                        st.selectbox("เลือกรายการเวชภัณฑ์:", ["(เวชภัณฑ์ทุกตัวอยู่ในตารางขอเบิกหมดแล้ว)"], disabled=True, label_visibility="collapsed")
-                
-                with c_add2:
-                    if st.button("➕ เพิ่มลงตาราง", use_container_width=True):
-                        if add_choice_id is not None:
-                            st.session_state.reorder_manual_added.append(add_choice_id)
-                            if add_choice_id in st.session_state.reorder_manual_removed:
-                                st.session_state.reorder_manual_removed.remove(add_choice_id)
-                            st.rerun()
-                            
-                with c_add3:
-                    if st.button("🔄 ล้างรายการที่เพิ่มเอง", use_container_width=True):
-                        st.session_state.reorder_manual_added = []
-                        st.session_state.reorder_manual_removed = []
-                        st.session_state.reorder_quantities = {}
-                        if "reorder_table" in st.session_state:
-                            del st.session_state["reorder_table"]
-                        st.rerun()
-
-                st.divider()
-
-                st.markdown("##### 📝 ตารางใบขอเบิก และดาวน์โหลดไฟล์")
+                # 🌟 V49 - ย้ายตารางขอเบิกขึ้นมาอยู่ด้านบน
+                st.markdown("##### 📝 รายการขอเบิก")
                 st.caption("💡 **วิธีแก้ไขจำนวน:** คลิกที่ตัวเลขในช่อง 'จำนวนขอเบิก' เพื่อพิมพ์แก้ได้เลย <br>💡 **วิธีลบรายการ:** ติ๊กเครื่องหมายถูกที่ช่อง **'ลบรายการ'** ท้ายตาราง แถวนั้นจะหายวับไปทันทีครับ!", unsafe_allow_html=True)
                 
                 if not df_table.empty:
@@ -669,7 +633,6 @@ else:
                             del st.session_state["reorder_table"]
                         st.rerun()
 
-                if not df_table.empty:
                     st.divider()
                     final_export_df = edited_df.drop(columns=['ลบรายการ']).copy()
                     final_export_df['ลำดับ'] = range(1, len(final_export_df) + 1) 
@@ -694,7 +657,45 @@ else:
                             type="primary"
                         )
                 else:
-                    st.success("✅ ยอดคงคลังเพียงพอทุกรายการ (หากต้องการออกใบเบิก ให้ค้นหาแล้วกดปุ่มเพิ่มลงตารางได้เลยครับ)")
+                    st.success("✅ ยอดคงคลังเพียงพอทุกรายการ (หากต้องการออกใบเบิก ให้ค้นหาแล้วกดปุ่มเพิ่มลงตารางด้านล่างได้เลยครับ)")
+
+                st.divider()
+                
+                # 🌟 V49 - ย้ายฟังก์ชันเพิ่มรายการลงมาไว้ด้านล่างตาราง
+                st.markdown("##### ➕ เพิ่มรายการขอเบิก (นอกเหนือจากที่ระบบแนะนำ)")
+                st.info("💡 กล่องค้นหาด้านล่าง จะแสดงเฉพาะ 'รายชื่อยาที่ยังไม่มีอยู่ในตาราง' เท่านั้นครับ")
+                
+                c_add1, c_add2, c_add3 = st.columns([3, 1, 1])
+                with c_add1:
+                    if not df_available.empty:
+                        avail_dict = dict(zip(df_available['id'], df_available['generic_name'] + " (" + df_available['unit'] + ")"))
+                        add_choice_id = st.selectbox(
+                            "เลือกรายการเวชภัณฑ์:", 
+                            options=[None] + df_available['id'].tolist(),
+                            format_func=lambda x: "-- เลือกรายการเวชภัณฑ์ --" if x is None else avail_dict[x],
+                            label_visibility="collapsed"
+                        )
+                    else:
+                        add_choice_id = None
+                        st.selectbox("เลือกรายการเวชภัณฑ์:", ["(เวชภัณฑ์ทุกตัวอยู่ในตารางขอเบิกหมดแล้ว)"], disabled=True, label_visibility="collapsed")
+                
+                with c_add2:
+                    if st.button("➕ เพิ่มลงตาราง", use_container_width=True):
+                        if add_choice_id is not None:
+                            st.session_state.reorder_manual_added.append(add_choice_id)
+                            if add_choice_id in st.session_state.reorder_manual_removed:
+                                st.session_state.reorder_manual_removed.remove(add_choice_id)
+                            st.rerun()
+                            
+                with c_add3:
+                    if st.button("🔄 ล้างรายการที่เพิ่มเอง", use_container_width=True):
+                        st.session_state.reorder_manual_added = []
+                        st.session_state.reorder_manual_removed = []
+                        st.session_state.reorder_quantities = {}
+                        if "reorder_table" in st.session_state:
+                            del st.session_state["reorder_table"]
+                        st.rerun()
+
             else:
                 st.warning("ไม่พบข้อมูลเวชภัณฑ์ในระบบ")
 

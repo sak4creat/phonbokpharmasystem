@@ -13,7 +13,7 @@ st.markdown("""
 <style>
     .stButton>button { border-radius: 8px; transition: all 0.3s ease; border: 1px solid #e0e0e0; font-weight: bold; }
     .stButton>button:hover { transform: scale(1.02); border-color: #2e7bcf; color: #2e7bcf; }
-    [data-testid="stForm"] { border-radius: 10px; border: 1px solid #f0f2f6; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 2rem; }
+    [data-testid="stForm"], [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px; border: 1px solid #f0f2f6; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 2rem; }
     [data-testid="stAlert"] { border-radius: 8px; }
     [data-testid="stMetricValue"] { color: #2e7bcf; }
     .item-box { border: 1px solid #eee; padding: 15px; border-radius: 8px; margin-bottom: 10px; background-color: #fafafa;}
@@ -976,7 +976,7 @@ else:
     elif menu == "📋 ข้อมูลยา (Master Data)":
         st.header("📋 จัดการข้อมูลเวชภัณฑ์หลัก (Master Data)")
         
-        # 🌟 V52 - เตรียมรายการกลุ่มยา
+        # เตรียมรายการกลุ่มยา
         base_groups = [
             "กลุ่มยาแก้ปวด-ลดไข้", "กลุ่มยาแก้แพ้", "กลุ่มยาระงับอาการไอ ขับเสมหะ",
             "กลุ่มยารักษาโรคหืด", "กลุ่มยาต้านแบคทีเรีย / ยาปฏิชีวนะ", "กลุ่มยาถ่ายพยาธิ",
@@ -987,7 +987,6 @@ else:
             "กลุ่มยาหยอดตา-ยาหยอดหู-ยาป้ายแผลในปาก", "กลุ่มยาบำรุงโลหิต-ยาวิตามิน", "กลุ่มยาสมุนไพร"
         ]
         
-        # ดึงกลุ่มยาที่มีคนเคยพิมพ์เพิ่มเองไว้ในระบบมารวมด้วย
         try:
             all_meds_raw = supabase.table("medicines").select("drug_group").execute().data
             existing_groups = [m['drug_group'] for m in all_meds_raw if m.get('drug_group') and m['drug_group'] != '-']
@@ -1013,44 +1012,45 @@ else:
                 df_meds['id'] = df_meds['id'].apply(lambda x: "-" if str(x).startswith("SYS-") else x)
                 df_meds.insert(0, 'ลำดับ', range(1, len(df_meds) + 1))
                 
-                # เปลี่ยนชื่อคอลัมน์และกรองเฉพาะคอลัมน์ที่จะแสดง
                 df_meds.rename(columns={'id': 'รหัสยามาตรฐาน', 'generic_name': 'ชื่อสามัญ', 'unit': 'หน่วยนับ', 'category': 'หมวดหมู่', 'drug_group': 'กลุ่มยา', 'min_stock': 'จุดสั่งซื้อ', 'is_active': 'สถานะ Active'}, inplace=True)
                 
                 cols_to_show = ['ลำดับ', 'รหัสยามาตรฐาน', 'ชื่อสามัญ', 'หน่วยนับ', 'หมวดหมู่']
-                if 'กลุ่มยา' in df_meds.columns: cols_to_show.append('กลุ่มยา') # ป้องกัน Error กรณีลืมเพิ่มคอลัมน์ใน Supabase
+                if 'กลุ่มยา' in df_meds.columns: cols_to_show.append('กลุ่มยา') 
                 cols_to_show.extend(['จุดสั่งซื้อ', 'สถานะ Active'])
                 
                 st.dataframe(df_meds[cols_to_show], use_container_width=True, hide_index=True)
             else:
                 st.info("ยังไม่มีข้อมูลเวชภัณฑ์")
 
+        # 🌟 V53 - ปลดล็อก Form เปลี่ยนมาใช้ Container เพื่อให้ซ่อน/แสดง ฟิลด์ได้แบบ Real-time
         with tab2:
-            with st.form("new_med"):
+            with st.container(border=True):
+                st.markdown("#### เพิ่มรายการเวชภัณฑ์ใหม่")
                 c1, c2 = st.columns(2)
-                nid_input = c1.text_input("รหัสยามาตรฐาน (เว้นว่างได้ ระบบจะแสดงผลเป็น - ให้อัตโนมัติ)")
-                nname = c2.text_input("ชื่อสามัญ (Generic Name) *บังคับ")
-                nunit = c1.text_input("หน่วยนับ (เช่น เม็ด, ขวด) *บังคับ")
-                ncat = c2.selectbox("หมวดหมู่", ["เวชภัณฑ์ยา", "เวชภัณฑ์ที่มิใช่ยา"])
+                nid_input = c1.text_input("รหัสยามาตรฐาน (เว้นว่างได้ ระบบจะแสดงผลเป็น - ให้อัตโนมัติ)", key="add_id")
+                nname = c2.text_input("ชื่อสามัญ (Generic Name) *บังคับ", key="add_name")
+                nunit = c1.text_input("หน่วยนับ (เช่น เม็ด, ขวด) *บังคับ", key="add_unit")
+                ncat = c2.selectbox("หมวดหมู่", ["เวชภัณฑ์ยา", "เวชภัณฑ์ที่มิใช่ยา"], key="add_cat")
                 
-                # 🌟 ช่องเลืออกกลุ่มยา
-                c3, c4 = st.columns(2)
-                ngroup_choice = c3.selectbox("กลุ่มยา (สำหรับเวชภัณฑ์ยา)", group_options)
-                ngroup_custom = c4.text_input("พิมพ์ชื่อกลุ่มยาใหม่ (กรณีเลือก 'เพิ่มกลุ่มยาใหม่เอง')")
+                final_group = "-"
+                # 🌟 โชว์ให้เลือกกลุ่มยา เฉพาะเมื่อเป็น "เวชภัณฑ์ยา"
+                if ncat == "เวชภัณฑ์ยา":
+                    ngroup_choice = st.selectbox("กลุ่มยา", group_options, key="add_group_choice")
+                    
+                    # 🌟 โชว์ช่องพิมพ์ เฉพาะเมื่อเลือก "เพิ่มกลุ่มยาใหม่เอง"
+                    if ngroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
+                        ngroup_custom = st.text_input("พิมพ์ชื่อกลุ่มยาใหม่", key="add_group_custom")
+                        final_group = ngroup_custom.strip() if ngroup_custom.strip() else "-"
+                    elif ngroup_choice != "- (ไม่มีกลุ่มยา / ไม่ระบุ)":
+                        final_group = ngroup_choice
+                else:
+                    final_group = "-"
                 
-                nmin = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=100)
+                nmin = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=100, key="add_min")
                 
-                if st.form_submit_button("บันทึกรายการใหม่", use_container_width=True):
+                if st.button("บันทึกรายการใหม่", use_container_width=True, type="primary", key="btn_add_med"):
                     if nname and nunit:
                         final_nid = nid_input.strip() if nid_input.strip() != "" else f"SYS-{int(time.time())}"
-                        
-                        # 🌟 ตัดสินใจว่าจะเซฟกลุ่มยาชื่ออะไรลงไป
-                        final_group = "-"
-                        if ncat == "เวชภัณฑ์ยา":
-                            if ngroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
-                                final_group = ngroup_custom.strip() if ngroup_custom.strip() else "-"
-                            elif ngroup_choice != "- (ไม่มีกลุ่มยา / ไม่ระบุ)":
-                                final_group = ngroup_choice
-                                
                         try:
                             supabase.table("medicines").insert({
                                 "id": final_nid, "generic_name": nname, "unit": nunit, 
@@ -1072,7 +1072,8 @@ else:
                 selected_id_real = st.selectbox(
                     "ค้นหาและเลือกรายการที่ต้องการแก้ไข หรือ ลบ:", 
                     options=all_meds['id'].tolist(),
-                    format_func=lambda x: med_dict[x]
+                    format_func=lambda x: med_dict[x],
+                    key="edit_med_select"
                 )
                 
                 if selected_id_real:
@@ -1080,17 +1081,18 @@ else:
                     
                     st.divider()
                     
-                    with st.form("edit_med_form"):
+                    with st.container(border=True):
+                        st.markdown("#### แก้ไขข้อมูล")
                         c1, c2 = st.columns(2)
                         
                         display_nid = "" if str(selected_id_real).startswith("SYS-") else selected_id_real
-                        e_id = c1.text_input("รหัสยามาตรฐาน (แก้ไขหรือเพิ่มใหม่ได้เลย หากเว้นว่างระบบจะใช้รหัสอัตโนมัติ)", value=display_nid)
+                        e_id = c1.text_input("รหัสยามาตรฐาน (แก้ไขหรือเพิ่มใหม่ได้เลย หากเว้นว่างระบบจะใช้รหัสอัตโนมัติ)", value=display_nid, key="edit_id")
                         
                         old_name = "" if pd.isna(med_info['generic_name']) else med_info['generic_name']
-                        e_name = c2.text_input("ชื่อสามัญ (Generic Name)", value=old_name)
+                        e_name = c2.text_input("ชื่อสามัญ (Generic Name)", value=old_name, key="edit_name")
                         
                         old_unit = "" if pd.isna(med_info['unit']) else med_info['unit']
-                        e_unit = c1.text_input("หน่วยนับ", value=old_unit)
+                        e_unit = c1.text_input("หน่วยนับ", value=old_unit, key="edit_unit")
                         
                         cat_options = ["เวชภัณฑ์ยา", "เวชภัณฑ์ที่มิใช่ยา"]
                         current_cat = str(med_info.get('category', ''))
@@ -1098,43 +1100,44 @@ else:
                         elif current_cat in ['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา']: cat_idx = 1 
                         else: cat_idx = 0 
                             
-                        e_cat = c2.selectbox("หมวดหมู่", cat_options, index=cat_idx)
+                        e_cat = c2.selectbox("หมวดหมู่", cat_options, index=cat_idx, key="edit_cat")
                         
-                        # 🌟 ดึงกลุ่มยาเดิมมาแสดง
-                        current_group = str(med_info.get('drug_group', '-'))
-                        if current_group == 'None' or current_group == 'nan' or current_group == '': 
-                            current_group = '-'
-                            
-                        try:
-                            group_idx = group_options.index(current_group)
-                        except:
-                            if current_group != '-':
-                                group_options.insert(1, current_group)
-                                group_idx = 1
-                            else:
-                                group_idx = 0
+                        final_egroup = "-"
+                        # 🌟 โชว์ช่องกลุ่มยา เฉพาะเมื่อเลือกหมวดหมู่เป็นเวชภัณฑ์ยา
+                        if e_cat == "เวชภัณฑ์ยา":
+                            current_group = str(med_info.get('drug_group', '-'))
+                            if current_group == 'None' or current_group == 'nan' or current_group == '': 
+                                current_group = '-'
                                 
-                        c3, c4 = st.columns(2)
-                        egroup_choice = c3.selectbox("กลุ่มยา (สำหรับเวชภัณฑ์ยา)", group_options, index=group_idx)
-                        egroup_custom = c4.text_input("พิมพ์ชื่อกลุ่มยาใหม่ (กรณีเลือก 'เพิ่มกลุ่มยาใหม่เอง')", value="")
+                            try:
+                                group_idx = group_options.index(current_group)
+                            except:
+                                if current_group != '-':
+                                    group_options.insert(1, current_group)
+                                    group_idx = 1
+                                else:
+                                    group_idx = 0
+                                    
+                            egroup_choice = st.selectbox("กลุ่มยา", group_options, index=group_idx, key="edit_group_choice")
+                            
+                            if egroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
+                                egroup_custom = st.text_input("พิมพ์ชื่อกลุ่มยาใหม่", value="", key="edit_group_custom")
+                                final_egroup = egroup_custom.strip() if egroup_custom.strip() else "-"
+                            elif egroup_choice != "- (ไม่มีกลุ่มยา / ไม่ระบุ)":
+                                final_egroup = egroup_choice
+                        else:
+                            final_egroup = "-"
                         
                         min_stock_val = 0 if pd.isna(med_info.get('min_stock')) else int(med_info.get('min_stock', 0))
-                        e_min = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val)
-                        e_active = st.checkbox("เปิดใช้งานรายการนี้ (นำไปรับ/เบิกได้ปกติ)", value=bool(med_info['is_active']))
+                        e_min = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val, key="edit_min")
+                        e_active = st.checkbox("เปิดใช้งานรายการนี้ (นำไปรับ/เบิกได้ปกติ)", value=bool(med_info['is_active']), key="edit_active")
                         
-                        if st.form_submit_button("บันทึกการแก้ไข", use_container_width=True):
+                        if st.button("บันทึกการแก้ไข", use_container_width=True, type="primary", key="btn_save_edit"):
                             if e_name and e_unit:
                                 final_new_id = e_id.strip()
                                 if final_new_id == "":
                                     if str(selected_id_real).startswith("SYS-"): final_new_id = selected_id_real
                                     else: final_new_id = f"SYS-{int(time.time())}"
-                                        
-                                final_egroup = "-"
-                                if e_cat == "เวชภัณฑ์ยา":
-                                    if egroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
-                                        final_egroup = egroup_custom.strip() if egroup_custom.strip() else "-"
-                                    elif egroup_choice != "- (ไม่มีกลุ่มยา / ไม่ระบุ)":
-                                        final_egroup = egroup_choice
                                         
                                 try:
                                     if final_new_id != selected_id_real:

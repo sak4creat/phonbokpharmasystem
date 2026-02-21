@@ -9,7 +9,7 @@ import os
 # --- 1. ตั้งค่าและเชื่อมต่อ (SETUP) ---
 st.set_page_config(page_title="ระบบคลังยา รพ.สต. โพนบก", layout="wide", page_icon="🏥")
 
-# 🌟 V54: CSS จัดการสีปุ่ม บันทึก (ฟ้า) และ ลบ (แดง)
+# 🌟 V55: CSS แก้ไขสีปุ่ม (บันทึกสีฟ้า, ลบสีแดง)
 st.markdown("""
 <style>
     .stButton>button { 
@@ -34,17 +34,16 @@ st.markdown("""
         color: white !important;
     }
 
-    /* 🌟 สีแดงสำหรับปุ่ม "ลบ" โดยอ้างอิงจากข้อความ (aria-label) */
-    button[aria-label="ลบรายการเวชภัณฑ์ถาวร"], 
-    button[aria-label="ลบผู้ใช้งาน"], 
-    button[aria-label="❌ ลบรายการนี้"] {
+    /* 🌟 ระบบดักจับเปลี่ยนสีปุ่ม "ลบ" ให้เป็นสีแดง */
+    div.element-container:has(.red-btn-hook) {
+        display: none !important;
+    }
+    div.element-container:has(.red-btn-hook) + div.element-container button {
         background-color: #e74c3c !important;
         border-color: #e74c3c !important;
         color: white !important;
     }
-    button[aria-label="ลบรายการเวชภัณฑ์ถาวร"]:hover, 
-    button[aria-label="ลบผู้ใช้งาน"]:hover, 
-    button[aria-label="❌ ลบรายการนี้"]:hover {
+    div.element-container:has(.red-btn-hook) + div.element-container button:hover {
         background-color: #c0392b !important;
         border-color: #c0392b !important;
         color: white !important;
@@ -331,6 +330,8 @@ else:
                     user_to_delete = st.selectbox("เลือกอีเมลที่ต้องการลบสิทธิ์การเข้าถึง:", other_users['email'].tolist())
                     confirm_del_user = st.checkbox("ยืนยันว่าต้องการลบสิทธิ์ผู้ใช้นี้", key="confirm_del_user")
                     
+                    # 🌟 V55: ระบบบังคับปุ่มเป็นสีแดง
+                    st.markdown('<div class="red-btn-hook"></div>', unsafe_allow_html=True)
                     if st.button("ลบผู้ใช้งาน", type="primary"):
                         if confirm_del_user:
                             try:
@@ -868,8 +869,12 @@ else:
                         confirm_del = st.checkbox("กดยืนยันหากต้องการ **ลบ** รายการนี้ทิ้งถาวร (คืนยอดเข้าคลัง)")
                         
                         col_btn1, col_btn2 = st.columns(2)
-                        submit_edit = col_btn1.form_submit_button("💾 บันทึกการแก้ไข", use_container_width=True)
-                        submit_delete = col_btn2.form_submit_button("❌ ลบรายการนี้", type="primary", use_container_width=True)
+                        with col_btn1:
+                            submit_edit = st.form_submit_button("💾 บันทึกการแก้ไข", type="primary", use_container_width=True)
+                        with col_btn2:
+                            # 🌟 V55: ระบบบังคับปุ่มเป็นสีแดง
+                            st.markdown('<div class="red-btn-hook"></div>', unsafe_allow_html=True)
+                            submit_delete = st.form_submit_button("❌ ลบรายการนี้", type="primary", use_container_width=True)
                         
                         if submit_edit:
                             if action_type == 'INITIAL' and new_qty_change != old_qty_change:
@@ -1088,141 +1093,4 @@ else:
                         try:
                             supabase.table("medicines").insert({
                                 "id": final_nid, "generic_name": nname, "unit": nunit, 
-                                "category": ncat, "drug_group": final_group, 
-                                "min_stock": nmin, "is_active": True
-                            }).execute()
-                            st.success("เพิ่มข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
-                        except Exception as e: 
-                            st.error(f"เกิดข้อผิดพลาดจากฐานข้อมูล: {e} (คุณลืมเพิ่มคอลัมน์ drug_group ใน Supabase หรือเปล่า?)")
-                    else: st.warning("กรุณากรอกชื่อเวชภัณฑ์ และหน่วยนับ ให้ครบถ้วน")
-                        
-        with tab3:
-            all_meds_data = supabase.table("medicines").select("*").execute().data
-            if all_meds_data:
-                all_meds = pd.DataFrame(all_meds_data)
-                
-                med_dict = dict(zip(all_meds['id'], all_meds['generic_name'].fillna('-ไม่มีชื่อยา-') + " (" + all_meds['unit'].fillna('-') + ")"))
-                
-                selected_id_real = st.selectbox(
-                    "ค้นหาและเลือกรายการที่ต้องการแก้ไข หรือ ลบ:", 
-                    options=all_meds['id'].tolist(),
-                    format_func=lambda x: med_dict[x],
-                    key="edit_med_select"
-                )
-                
-                if selected_id_real:
-                    med_info = all_meds[all_meds['id'] == selected_id_real].iloc[0]
-                    
-                    st.divider()
-                    
-                    # 🌟 V54: สร้าง Dynamic Key โดยผูกกับรหัสยาที่เลือก เพื่อบังคับให้ฟอร์มอัปเดตข้อมูลใหม่เสมอ
-                    k_suffix = str(selected_id_real)
-                    
-                    with st.container(border=True):
-                        st.markdown("#### แก้ไขข้อมูล")
-                        c1, c2 = st.columns(2)
-                        
-                        display_nid = "" if str(selected_id_real).startswith("SYS-") else selected_id_real
-                        e_id = c1.text_input("รหัสยามาตรฐาน (แก้ไขหรือเพิ่มใหม่ได้เลย หากเว้นว่างระบบจะใช้รหัสอัตโนมัติ)", value=display_nid, key=f"edit_id_{k_suffix}")
-                        
-                        old_name = "" if pd.isna(med_info['generic_name']) else med_info['generic_name']
-                        e_name = c2.text_input("ชื่อสามัญ (Generic Name)", value=old_name, key=f"edit_name_{k_suffix}")
-                        
-                        old_unit = "" if pd.isna(med_info['unit']) else med_info['unit']
-                        e_unit = c1.text_input("หน่วยนับ", value=old_unit, key=f"edit_unit_{k_suffix}")
-                        
-                        cat_options = ["เวชภัณฑ์ยา", "เวชภัณฑ์ที่มิใช่ยา"]
-                        current_cat = str(med_info.get('category', ''))
-                        if current_cat in ['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา']: cat_idx = 0 
-                        elif current_cat in ['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา']: cat_idx = 1 
-                        else: cat_idx = 0 
-                            
-                        e_cat = c2.selectbox("หมวดหมู่", cat_options, index=cat_idx, key=f"edit_cat_{k_suffix}")
-                        
-                        final_egroup = "-"
-                        if e_cat == "เวชภัณฑ์ยา":
-                            current_group = str(med_info.get('drug_group', '-'))
-                            if current_group == 'None' or current_group == 'nan' or current_group == '': 
-                                current_group = '-'
-                                
-                            try:
-                                group_idx = group_options.index(current_group)
-                            except:
-                                if current_group != '-':
-                                    group_options.insert(1, current_group)
-                                    group_idx = 1
-                                else:
-                                    group_idx = 0
-                                    
-                            egroup_choice = st.selectbox("กลุ่มยา", group_options, index=group_idx, key=f"edit_group_choice_{k_suffix}")
-                            
-                            if egroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
-                                egroup_custom = st.text_input("พิมพ์ชื่อกลุ่มยาใหม่", value="", key=f"edit_group_custom_{k_suffix}")
-                                final_egroup = egroup_custom.strip() if egroup_custom.strip() else "-"
-                            elif egroup_choice != "- (ไม่มีกลุ่มยา / ไม่ระบุ)":
-                                final_egroup = egroup_choice
-                        else:
-                            final_egroup = "-"
-                        
-                        min_stock_val = 0 if pd.isna(med_info.get('min_stock')) else int(med_info.get('min_stock', 0))
-                        e_min = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val, key=f"edit_min_{k_suffix}")
-                        e_active = st.checkbox("เปิดใช้งานรายการนี้ (นำไปรับ/เบิกได้ปกติ)", value=bool(med_info['is_active']), key=f"edit_active_{k_suffix}")
-                        
-                        if st.button("บันทึกการแก้ไข", use_container_width=True, type="primary", key=f"btn_save_edit_{k_suffix}"):
-                            if e_name and e_unit:
-                                final_new_id = e_id.strip()
-                                if final_new_id == "":
-                                    if str(selected_id_real).startswith("SYS-"): final_new_id = selected_id_real
-                                    else: final_new_id = f"SYS-{int(time.time())}"
-                                        
-                                try:
-                                    if final_new_id != selected_id_real:
-                                        check = supabase.table("medicines").select("id").eq("id", final_new_id).execute()
-                                        if check.data:
-                                            st.error(f"❌ เปลี่ยนรหัสไม่ได้! รหัส '{final_new_id}' มีซ้ำอยู่ในระบบแล้ว")
-                                            st.stop()
-                                            
-                                        supabase.table("medicines").insert({
-                                            "id": final_new_id, "generic_name": e_name, "unit": e_unit, 
-                                            "category": e_cat, "drug_group": final_egroup, 
-                                            "min_stock": e_min, "is_active": e_active
-                                        }).execute()
-                                        
-                                        supabase.table("inventory").update({"medicine_id": final_new_id}).eq("medicine_id", selected_id_real).execute()
-                                        supabase.table("transactions").update({"medicine_id": final_new_id}).eq("medicine_id", selected_id_real).execute()
-                                        supabase.table("medicines").delete().eq("id", selected_id_real).execute()
-                                        
-                                    else:
-                                        supabase.table("medicines").update({
-                                            "generic_name": e_name, "unit": e_unit, 
-                                            "category": e_cat, "drug_group": final_egroup, 
-                                            "min_stock": e_min, "is_active": e_active
-                                        }).eq("id", selected_id_real).execute()
-                                        
-                                    st.success(f"✅ อัปเดตข้อมูลสำเร็จ!"); time.sleep(1.5); st.rerun()
-                                except Exception as e:
-                                    st.error(f"เกิดข้อผิดพลาดในการอัปเดต: {e} (ลืมเพิ่มคอลัมน์ drug_group ใน Supabase หรือเปล่า?)")
-                            else:
-                                st.warning("กรุณากรอกชื่อเวชภัณฑ์และหน่วยนับให้ครบถ้วน")
-                    
-                    st.divider()
-                    st.markdown("#### ลบข้อมูลถาวร")
-                    st.warning("แนะนำให้ใช้วิธี **'เอาเครื่องหมายถูกเปิดใช้งานออก'** แทนการลบ เพื่อเก็บประวัติไว้ตรวจสอบ (ระบบจะอนุญาตให้ลบถาวรได้ **เฉพาะรายการที่ไม่เคยมีประวัติรับ-จ่าย** เท่านั้น)")
-                    
-                    del_col1, del_col2 = st.columns([1, 1])
-                    with del_col1:
-                        confirm_del = st.checkbox("ยืนยันว่าต้องการลบรายการนี้ทิ้งถาวร", key=f"confirm_delete_box_{k_suffix}")
-                    with del_col2:
-                        # 🌟 ปุ่มลบรายการ จะโดน CSS ทำให้เป็นสีแดงอัตโนมัติ
-                        if st.button("ลบรายการเวชภัณฑ์ถาวร", type="primary", use_container_width=True, key=f"btn_del_med_{k_suffix}"):
-                            if confirm_del:
-                                try:
-                                    supabase.table("medicines").delete().eq("id", selected_id_real).execute()
-                                    st.success(f"ลบรายการออกจากระบบเรียบร้อยแล้ว!")
-                                    time.sleep(1.5)
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error("ไม่สามารถลบได้! เนื่องจากรายการนี้เคยถูกทำรับ/เบิกไปแล้ว (กรุณาใช้วิธีปิดใช้งานแทน)")
-                            else:
-                                st.error("กรุณาติ๊กเครื่องหมายถูกที่ช่อง 'ยืนยัน' ก่อนกดปุ่มลบ")
-            else: st.info("ยังไม่มีข้อมูลในระบบ")
+                                "category": ncat, "

@@ -52,7 +52,7 @@ def generate_and_send_report():
         df_recv = df_merged[df_merged['action_type'] == 'RECEIVE'].groupby('generic_name')['qty_change'].sum().reset_index().sort_values(by='qty_change', ascending=False).head(5)
         if not df_recv.empty:
             for idx, row in df_recv.iterrows():
-                unit = meds[meds['generic_name'] == row['generic_name']]['unit'].values[0]
+                unit = meds[meds['generic_name'] == row['generic_name']]['unit'].values[0] if not meds[meds['generic_name'] == row['generic_name']].empty else ''
                 msg_part2 += f"\n{idx+1}. {row['generic_name']} (+{int(row['qty_change'])} {unit})"
         else: msg_part2 += "\n(ไม่มีรายการรับเข้า)"
 
@@ -61,14 +61,20 @@ def generate_and_send_report():
         df_disp = df_disp.groupby('generic_name')['qty_change'].sum().reset_index().sort_values(by='qty_change', ascending=False).head(5)
         if not df_disp.empty:
             for idx, row in df_disp.iterrows():
-                unit = meds[meds['generic_name'] == row['generic_name']]['unit'].values[0]
+                unit = meds[meds['generic_name'] == row['generic_name']]['unit'].values[0] if not meds[meds['generic_name'] == row['generic_name']].empty else ''
                 msg_part3 += f"\n{idx+1}. {row['generic_name']} (-{int(row['qty_change'])} {unit})"
         else: msg_part3 += "\n(ไม่มีรายการเบิกจ่าย)"
     else:
         msg_part2 += "\n(ไม่มีการเคลื่อนไหว)"
         msg_part3 += "\n(ไม่มีการเคลื่อนไหว)"
 
-    msg_part4 = "\n\n⚠️ แจ้งเตือน: ต้องสั่งซื้อเพิ่ม"
+    # 🌟 ส่วนที่ปรับแก้ใหม่: บังคับแสดงยอดสรุปยา/มิใช่ยา เสมอ
+    msg_part4 = "\n\n⚠️ แจ้งเตือน: ต่ำกว่าจุดสั่งซื้อ"
+    low_total = 0
+    low_drugs = 0
+    low_supplies = 0
+    low_stock = pd.DataFrame()
+
     if not meds.empty:
         if not inv_df.empty:
             inv_agg = inv_df.groupby('medicine_id')['qty'].sum().reset_index()
@@ -79,20 +85,21 @@ def generate_and_send_report():
             df_stock['qty'] = 0
             
         low_stock = df_stock[df_stock['qty'] <= df_stock['min_stock']]
-        
-        # 🌟 อัปเดต: แยกนับจำนวน ยา และ ไม่ใช่ยา
-        if not low_stock.empty:
-            low_drugs_count = len(low_stock[low_stock['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
-            low_supplies_count = len(low_stock[low_stock['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
-            
-            msg_part4 += f"\nรวม {len(low_stock)} รายการ แบ่งเป็น:"
-            msg_part4 += f"\n💊 เวชภัณฑ์ยา: {low_drugs_count} รายการ"
-            msg_part4 += f"\n📦 เวชภัณฑ์มิใช่ยา: {low_supplies_count} รายการ\n"
-            
-            for _, row in low_stock.head(10).iterrows():
-                msg_part4 += f"\n- {row['generic_name']}: เหลือ {int(row['qty'])}"
-            if len(low_stock) > 10: msg_part4 += f"\n...และอื่นๆ อีก {len(low_stock)-10} รายการ"
-        else: msg_part4 += "\n✅ สต๊อกเพียงพอทุกรายการ"
+        low_total = len(low_stock)
+        low_drugs = len(low_stock[low_stock['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
+        low_supplies = len(low_stock[low_stock['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
+
+    msg_part4 += f"\nรวมทั้งหมด {low_total} รายการ แบ่งเป็น:"
+    msg_part4 += f"\n💊 เวชภัณฑ์ยา จำนวน {low_drugs} รายการ"
+    msg_part4 += f"\n📦 เวชภัณฑ์ที่มิใช่ยา จำนวน {low_supplies} รายการ\n"
+
+    if low_total > 0:
+        for _, row in low_stock.head(10).iterrows():
+            msg_part4 += f"\n- {row['generic_name']}: เหลือ {int(row['qty'])} (เป้า: {int(row['min_stock'])})"
+        if low_total > 10: 
+            msg_part4 += f"\n...และอื่นๆ อีก {low_total-10} รายการ"
+    else: 
+        msg_part4 += "✅ สต๊อกเพียงพอทุกรายการ"
 
     msg_part5 = "\n\n⏰ ใกล้หมดอายุ (<90 วัน)"
     if not inv_df.empty:
@@ -107,6 +114,7 @@ def generate_and_send_report():
                     msg_part5 += f"\n- {row['generic_name']}\n  เหลือ {int(row['qty'])} | หมด: {row['exp_date'].strftime('%d/%m/%Y')}"
                 if len(near_exp) > 10: msg_part5 += f"\n...และอื่นๆ อีก {len(near_exp)-10} ล็อต"
             else: msg_part5 += "\n✅ ไม่มีเวชภัณฑ์ใกล้หมดอายุ"
+        else: msg_part5 += "\n✅ ไม่มีเวชภัณฑ์ใกล้หมดอายุ"
     else: msg_part5 += "\n✅ ไม่มีข้อมูลสต๊อก"
 
     final_message = report_title + msg_part1 + msg_part2 + msg_part3 + msg_part4 + msg_part5

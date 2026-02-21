@@ -428,73 +428,82 @@ else:
                     st.info("คำแนะนำ: โปรดตรวจสอบว่ารหัส Lot มีการซ้ำซ้อนในระบบหรือไม่")
 
     # ----------------------------------------------------------------------
-    # 📤 เบิกจ่าย (Dispense) - V50 ตัดแสดงเลข Lot และทำระบบ Auto-FEFO
+    # 📤 เบิกจ่าย (Dispense)
     # ----------------------------------------------------------------------
     elif menu == "📤 เบิกจ่าย (Dispense)":
         st.header("📤 การเบิกจ่ายเวชภัณฑ์ (Dispense)")
         df_inv = get_inventory_view()
         
         if not df_inv.empty:
-            # 🌟 รวบยอดจำนวนยาทั้งหมดที่มี โดยไม่ต้องสนใจว่าอยู่ Lot ไหน เพื่อโชว์ในกล่องค้นหาแบบคลีนๆ
             df_grouped = df_inv.groupby(['medicine_id', 'generic_name', 'unit'])['qty'].sum().reset_index()
-            df_grouped['display_label'] = df_grouped['generic_name']
+            med_dict = dict(zip(df_grouped['medicine_id'], df_grouped['generic_name'] + " (เหลือ " + df_grouped['qty'].astype(int).astype(str) + " " + df_grouped['unit'] + ")"))
+            med_options = df_grouped['medicine_id'].tolist()
             
-            st.info("💡 สามารถค้นหาและเลือกชื่อเวชภัณฑ์ได้หลายรายการพร้อมกัน (ระบบจะหักยอดจาก Lot ที่ใกล้หมดอายุก่อนให้อัตโนมัติ - FEFO)")
-            selected_labels = st.multiselect("ค้นหาและเลือกชื่อเวชภัณฑ์", df_grouped['display_label'].tolist())
+            st.info("💡 ระบบจะหักยอดคงเหลือจาก Lot ที่กำลังจะหมดอายุก่อนให้อัตโนมัติ (หลักการ FEFO)")
             
-            if selected_labels:
-                st.divider()
-                st.subheader("ระบุจำนวนที่ต้องการเบิกจ่าย")
-                with st.form("bulk_dispense_form"):
-                    dispense_requests = []
+            num_items = st.number_input("จำนวนรายการเวชภัณฑ์ที่ต้องการเบิกจ่ายพร้อมกัน", min_value=1, max_value=20, value=1)
+            st.divider()
+            
+            with st.form("bulk_dispense_form"):
+                dispense_requests = []
+                for i in range(int(num_items)):
+                    st.markdown(f"**รายการที่ {i+1}**")
+                    c1, c2 = st.columns([3, 1])
                     
-                    for i, label in enumerate(selected_labels):
-                        # ดึงข้อมูลยารวมที่เลือกมา
-                        row = df_grouped[df_grouped['display_label'] == label].iloc[0]
-                        st.markdown(f'<div class="item-box">', unsafe_allow_html=True)
-                        col1, col2 = st.columns([3, 1])
-                        with col1:
-                            st.markdown(f"**{row['generic_name']}**")
-                            st.caption(f"คงเหลือรวมทั้งหมด: {int(row['qty'])} {row['unit']}")
-                        with col2:
-                            amount = st.number_input(f"จำนวนที่เบิก ({row['unit']})", min_value=1, max_value=int(row['qty']), key=f"disp_{i}")
-                        st.markdown('</div>', unsafe_allow_html=True)
+                    with c1:
+                        selected_id = st.selectbox(
+                            "เลือกชื่อเวชภัณฑ์", 
+                            options=med_options, 
+                            format_func=lambda x: med_dict[x], 
+                            key=f"disp_med_{i}"
+                        )
+                    with c2:
+                        amount = st.number_input("จำนวนที่เบิก", min_value=1, key=f"disp_qty_{i}")
                         
-                        # เก็บว่าต้องการเบิกยาตัวไหน จำนวนเท่าไหร่ (ยังไม่ระบุ Lot)
-                        dispense_requests.append({
-                            'medicine_id': row['medicine_id'],
-                            'dispense_qty': amount,
-                            'generic_name': row['generic_name']
-                        })
-                        
-                    note = st.text_input("หมายเหตุ (เช่น เบิกให้แผนก ER, รพ.สต.เครือข่าย)", value="จ่ายหน้างาน")
-                    recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
-                    st.caption(f"ผู้บันทึกการเบิกจ่าย: {recorder_name}")
+                    st.markdown("---")
                     
-                    if st.form_submit_button("ยืนยันการเบิกจ่าย", use_container_width=True):
+                    dispense_requests.append({
+                        'medicine_id': selected_id,
+                        'dispense_qty': amount
+                    })
+                    
+                note = st.text_input("หมายเหตุ (เช่น เบิกให้แผนก ER, รพ.สต.เครือข่าย)", value="จ่ายหน้างาน")
+                recorder_name = st.session_state.full_name if st.session_state.full_name else st.session_state.user_email
+                st.caption(f"ผู้บันทึกการเบิกจ่าย: {recorder_name}")
+                
+                if st.form_submit_button("ยืนยันการเบิกจ่าย", use_container_width=True):
+                    req_df = pd.DataFrame(dispense_requests)
+                    req_grouped = req_df.groupby('medicine_id')['dispense_qty'].sum().reset_index()
+                    
+                    has_error = False
+                    for _, row in req_grouped.iterrows():
+                        med_id = row['medicine_id']
+                        total_req = row['dispense_qty']
+                        avail_qty = df_grouped[df_grouped['medicine_id'] == med_id]['qty'].values[0]
+                        
+                        if total_req > avail_qty:
+                            med_name = df_grouped[df_grouped['medicine_id'] == med_id]['generic_name'].values[0]
+                            st.error(f"❌ ยอดคงเหลือของ '{med_name}' ไม่พอเบิก! (มียอดรวม {int(avail_qty)} แต่ต้องการเบิก {int(total_req)})")
+                            has_error = True
+                            
+                    if not has_error:
                         try:
-                            # 🌟 ระบบตัดสต๊อกอัจฉริยะ (Auto-FEFO)
                             for req in dispense_requests:
                                 med_id = req['medicine_id']
                                 qty_needed = req['dispense_qty']
                                 
-                                # ไปดึง Lot ทั้งหมดของยานี้ที่มีของเหลืออยู่ โดยเรียงจาก "วันหมดอายุใกล้สุด" ขึ้นมาก่อน
                                 lot_res = supabase.table("inventory").select("*").eq("medicine_id", med_id).gt("qty", 0).order("exp_date").execute()
                                 available_lots = pd.DataFrame(lot_res.data)
                                 
-                                # ทยอยหักของออกจากแต่ละ Lot จนกว่าจะครบตามจำนวนที่ขอเบิก
                                 for _, lot in available_lots.iterrows():
                                     if qty_needed <= 0:
-                                        break # เบิกครบแล้ว หยุดลูป
+                                        break
                                         
-                                    # คำนวณว่าจะเอาจาก Lot นี้กี่ชิ้น (เอาเท่าที่ต้องการ หรือเอาทั้งหมดถ้า Lot นี้มีไม่พอ)
                                     take_qty = min(lot['qty'], qty_needed)
-                                    
-                                    # หักยอดในคลังของ Lot นี้
                                     new_inv_qty = lot['qty'] - take_qty
+                                    
                                     supabase.table("inventory").update({"qty": new_inv_qty}).eq("id", lot['id']).execute()
                                     
-                                    # สร้างประวัติการเบิกจ่ายเจาะจงว่าเอามาจาก Lot ไหน
                                     supabase.table("transactions").insert({
                                         "medicine_id": med_id, 
                                         "action_type": "DISPENSE",
@@ -504,10 +513,9 @@ else:
                                         "note": note
                                     }).execute()
                                     
-                                    # ลดจำนวนความต้องการลง
                                     qty_needed -= take_qty
                                     
-                            st.success("บันทึกการเบิกจ่ายสำเร็จ! (ระบบตัดสต๊อกตาม Lot ที่หมดอายุก่อนให้อัตโนมัติ)")
+                            st.success("✅ บันทึกการเบิกจ่ายสำเร็จ! (ระบบตัดสต๊อกตาม Lot ที่หมดอายุก่อนให้อัตโนมัติเรียบร้อยแล้ว)")
                             time.sleep(2)
                             st.rerun()
                         except Exception as e:
@@ -968,6 +976,27 @@ else:
     elif menu == "📋 ข้อมูลยา (Master Data)":
         st.header("📋 จัดการข้อมูลเวชภัณฑ์หลัก (Master Data)")
         
+        # 🌟 V52 - เตรียมรายการกลุ่มยา
+        base_groups = [
+            "กลุ่มยาแก้ปวด-ลดไข้", "กลุ่มยาแก้แพ้", "กลุ่มยาระงับอาการไอ ขับเสมหะ",
+            "กลุ่มยารักษาโรคหืด", "กลุ่มยาต้านแบคทีเรีย / ยาปฏิชีวนะ", "กลุ่มยาถ่ายพยาธิ",
+            "กลุ่มยาลดกรด - ขับลม", "กลุ่มยาระบาย", "กลุ่มยาแก้ท้องเสีย",
+            "กลุ่มยาแก้ปวดเกร็งในช่องท้อง", "กลุ่มยาแก้คลื่นไส้อาเจียน-วิงเวียนศีรษะ",
+            "กลุ่มน้ำเกลือและสารน้ำให้ทางหลอดเลือดดำ", "กลุ่มยาชาเฉพาะที่", "กลุ่มยาช่วยชีวิต",
+            "กลุ่มน้ำยาฆ่าเชื้อ", "กลุ่มยาที่ใช้สำหรับผิวหนัง",
+            "กลุ่มยาหยอดตา-ยาหยอดหู-ยาป้ายแผลในปาก", "กลุ่มยาบำรุงโลหิต-ยาวิตามิน", "กลุ่มยาสมุนไพร"
+        ]
+        
+        # ดึงกลุ่มยาที่มีคนเคยพิมพ์เพิ่มเองไว้ในระบบมารวมด้วย
+        try:
+            all_meds_raw = supabase.table("medicines").select("drug_group").execute().data
+            existing_groups = [m['drug_group'] for m in all_meds_raw if m.get('drug_group') and m['drug_group'] != '-']
+        except:
+            existing_groups = []
+            
+        unique_groups = sorted(list(set(base_groups + existing_groups)))
+        group_options = ["- (ไม่มีกลุ่มยา / ไม่ระบุ)"] + unique_groups + ["➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง..."]
+        
         tab1, tab2, tab3 = st.tabs(["📄 รายการที่มีอยู่", "📝 เพิ่มรายการใหม่", "⚙️ แก้ไข / ลบข้อมูล"])
         
         with tab1:
@@ -983,8 +1012,15 @@ else:
                 
                 df_meds['id'] = df_meds['id'].apply(lambda x: "-" if str(x).startswith("SYS-") else x)
                 df_meds.insert(0, 'ลำดับ', range(1, len(df_meds) + 1))
-                df_meds.rename(columns={'id': 'รหัสยามาตรฐาน', 'generic_name': 'ชื่อสามัญ', 'unit': 'หน่วยนับ', 'category': 'หมวดหมู่', 'min_stock': 'จุดสั่งซื้อ', 'is_active': 'สถานะ Active'}, inplace=True)
-                st.dataframe(df_meds[['ลำดับ', 'รหัสยามาตรฐาน', 'ชื่อสามัญ', 'หน่วยนับ', 'หมวดหมู่', 'จุดสั่งซื้อ', 'สถานะ Active']], use_container_width=True, hide_index=True)
+                
+                # เปลี่ยนชื่อคอลัมน์และกรองเฉพาะคอลัมน์ที่จะแสดง
+                df_meds.rename(columns={'id': 'รหัสยามาตรฐาน', 'generic_name': 'ชื่อสามัญ', 'unit': 'หน่วยนับ', 'category': 'หมวดหมู่', 'drug_group': 'กลุ่มยา', 'min_stock': 'จุดสั่งซื้อ', 'is_active': 'สถานะ Active'}, inplace=True)
+                
+                cols_to_show = ['ลำดับ', 'รหัสยามาตรฐาน', 'ชื่อสามัญ', 'หน่วยนับ', 'หมวดหมู่']
+                if 'กลุ่มยา' in df_meds.columns: cols_to_show.append('กลุ่มยา') # ป้องกัน Error กรณีลืมเพิ่มคอลัมน์ใน Supabase
+                cols_to_show.extend(['จุดสั่งซื้อ', 'สถานะ Active'])
+                
+                st.dataframe(df_meds[cols_to_show], use_container_width=True, hide_index=True)
             else:
                 st.info("ยังไม่มีข้อมูลเวชภัณฑ์")
 
@@ -995,15 +1031,35 @@ else:
                 nname = c2.text_input("ชื่อสามัญ (Generic Name) *บังคับ")
                 nunit = c1.text_input("หน่วยนับ (เช่น เม็ด, ขวด) *บังคับ")
                 ncat = c2.selectbox("หมวดหมู่", ["เวชภัณฑ์ยา", "เวชภัณฑ์ที่มิใช่ยา"])
+                
+                # 🌟 ช่องเลืออกกลุ่มยา
+                c3, c4 = st.columns(2)
+                ngroup_choice = c3.selectbox("กลุ่มยา (สำหรับเวชภัณฑ์ยา)", group_options)
+                ngroup_custom = c4.text_input("พิมพ์ชื่อกลุ่มยาใหม่ (กรณีเลือก 'เพิ่มกลุ่มยาใหม่เอง')")
+                
                 nmin = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=100)
                 
                 if st.form_submit_button("บันทึกรายการใหม่", use_container_width=True):
                     if nname and nunit:
                         final_nid = nid_input.strip() if nid_input.strip() != "" else f"SYS-{int(time.time())}"
+                        
+                        # 🌟 ตัดสินใจว่าจะเซฟกลุ่มยาชื่ออะไรลงไป
+                        final_group = "-"
+                        if ncat == "เวชภัณฑ์ยา":
+                            if ngroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
+                                final_group = ngroup_custom.strip() if ngroup_custom.strip() else "-"
+                            elif ngroup_choice != "- (ไม่มีกลุ่มยา / ไม่ระบุ)":
+                                final_group = ngroup_choice
+                                
                         try:
-                            supabase.table("medicines").insert({"id": final_nid, "generic_name": nname, "unit": nunit, "category": ncat, "min_stock": nmin, "is_active": True}).execute()
+                            supabase.table("medicines").insert({
+                                "id": final_nid, "generic_name": nname, "unit": nunit, 
+                                "category": ncat, "drug_group": final_group, 
+                                "min_stock": nmin, "is_active": True
+                            }).execute()
                             st.success("เพิ่มข้อมูลสำเร็จ!"); time.sleep(1); st.rerun()
-                        except: st.error("รหัสยามาตรฐานซ้ำ หรือเกิดข้อผิดพลาดจากฐานข้อมูล")
+                        except Exception as e: 
+                            st.error(f"เกิดข้อผิดพลาดจากฐานข้อมูล: {e} (คุณลืมเพิ่มคอลัมน์ drug_group ใน Supabase หรือเปล่า?)")
                     else: st.warning("กรุณากรอกชื่อเวชภัณฑ์ และหน่วยนับ ให้ครบถ้วน")
                         
         with tab3:
@@ -1038,28 +1094,47 @@ else:
                         
                         cat_options = ["เวชภัณฑ์ยา", "เวชภัณฑ์ที่มิใช่ยา"]
                         current_cat = str(med_info.get('category', ''))
-                        
-                        if current_cat in ['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา']:
-                            cat_idx = 0 
-                        elif current_cat in ['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา']:
-                            cat_idx = 1 
-                        else:
-                            cat_idx = 0 
+                        if current_cat in ['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา']: cat_idx = 0 
+                        elif current_cat in ['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา']: cat_idx = 1 
+                        else: cat_idx = 0 
                             
                         e_cat = c2.selectbox("หมวดหมู่", cat_options, index=cat_idx)
                         
+                        # 🌟 ดึงกลุ่มยาเดิมมาแสดง
+                        current_group = str(med_info.get('drug_group', '-'))
+                        if current_group == 'None' or current_group == 'nan' or current_group == '': 
+                            current_group = '-'
+                            
+                        try:
+                            group_idx = group_options.index(current_group)
+                        except:
+                            if current_group != '-':
+                                group_options.insert(1, current_group)
+                                group_idx = 1
+                            else:
+                                group_idx = 0
+                                
+                        c3, c4 = st.columns(2)
+                        egroup_choice = c3.selectbox("กลุ่มยา (สำหรับเวชภัณฑ์ยา)", group_options, index=group_idx)
+                        egroup_custom = c4.text_input("พิมพ์ชื่อกลุ่มยาใหม่ (กรณีเลือก 'เพิ่มกลุ่มยาใหม่เอง')", value="")
+                        
                         min_stock_val = 0 if pd.isna(med_info.get('min_stock')) else int(med_info.get('min_stock', 0))
-                        e_min = c1.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val)
+                        e_min = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val)
                         e_active = st.checkbox("เปิดใช้งานรายการนี้ (นำไปรับ/เบิกได้ปกติ)", value=bool(med_info['is_active']))
                         
                         if st.form_submit_button("บันทึกการแก้ไข", use_container_width=True):
                             if e_name and e_unit:
                                 final_new_id = e_id.strip()
                                 if final_new_id == "":
-                                    if str(selected_id_real).startswith("SYS-"):
-                                        final_new_id = selected_id_real
-                                    else:
-                                        final_new_id = f"SYS-{int(time.time())}"
+                                    if str(selected_id_real).startswith("SYS-"): final_new_id = selected_id_real
+                                    else: final_new_id = f"SYS-{int(time.time())}"
+                                        
+                                final_egroup = "-"
+                                if e_cat == "เวชภัณฑ์ยา":
+                                    if egroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
+                                        final_egroup = egroup_custom.strip() if egroup_custom.strip() else "-"
+                                    elif egroup_choice != "- (ไม่มีกลุ่มยา / ไม่ระบุ)":
+                                        final_egroup = egroup_choice
                                         
                                 try:
                                     if final_new_id != selected_id_real:
@@ -1070,7 +1145,8 @@ else:
                                             
                                         supabase.table("medicines").insert({
                                             "id": final_new_id, "generic_name": e_name, "unit": e_unit, 
-                                            "category": e_cat, "min_stock": e_min, "is_active": e_active
+                                            "category": e_cat, "drug_group": final_egroup, 
+                                            "min_stock": e_min, "is_active": e_active
                                         }).execute()
                                         
                                         supabase.table("inventory").update({"medicine_id": final_new_id}).eq("medicine_id", selected_id_real).execute()
@@ -1080,12 +1156,13 @@ else:
                                     else:
                                         supabase.table("medicines").update({
                                             "generic_name": e_name, "unit": e_unit, 
-                                            "category": e_cat, "min_stock": e_min, "is_active": e_active
+                                            "category": e_cat, "drug_group": final_egroup, 
+                                            "min_stock": e_min, "is_active": e_active
                                         }).eq("id", selected_id_real).execute()
                                         
                                     st.success(f"✅ อัปเดตข้อมูลสำเร็จ!"); time.sleep(1.5); st.rerun()
                                 except Exception as e:
-                                    st.error(f"เกิดข้อผิดพลาดในการอัปเดต: {e}")
+                                    st.error(f"เกิดข้อผิดพลาดในการอัปเดต: {e} (ลืมเพิ่มคอลัมน์ drug_group ใน Supabase หรือเปล่า?)")
                             else:
                                 st.warning("กรุณากรอกชื่อเวชภัณฑ์และหน่วยนับให้ครบถ้วน")
                     

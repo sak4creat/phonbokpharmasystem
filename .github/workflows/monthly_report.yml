@@ -1,0 +1,31 @@
+name: Send Monthly Report to LINE
+
+on:
+  schedule:
+    # ตั้งเวลาปลุก: นาทีที่ 0, ชั่วโมงที่ 3 (เวลาสากล UTC ซึ่งตรงกับ 10.00 น. เวลาไทย), วันที่ 1 ของเดือน
+    - cron: '0 3 1 * *'
+  workflow_dispatch: # อนุญาตให้กดรันด้วยมือใน GitHub ได้ด้วย
+
+jobs:
+  run-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install supabase pandas requests python-dateutil
+
+      - name: Run Auto Report Script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          LINE_BOT_TOKEN: ${{ secrets.LINE_BOT_TOKEN }}
+          LINE_TARGET_ID: ${{ secrets.LINE_TARGET_ID }}
+        run: python auto_report.py

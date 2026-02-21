@@ -9,32 +9,44 @@ import os
 # --- 1. ตั้งค่าและเชื่อมต่อ (SETUP) ---
 st.set_page_config(page_title="ระบบคลังยา รพ.สต. โพนบก", layout="wide", page_icon="🏥")
 
-# 🌟 แก้ไข CSS: เปลี่ยนสีปุ่ม Primary เป็นสีฟ้า
+# 🌟 V54: CSS จัดการสีปุ่ม บันทึก (ฟ้า) และ ลบ (แดง)
 st.markdown("""
 <style>
-    /* สไตล์ปุ่มทั่วไป */
     .stButton>button { 
         border-radius: 8px; 
         transition: all 0.3s ease; 
         border: 1px solid #e0e0e0; 
         font-weight: bold; 
     }
-    /* สไตล์ปุ่มเมื่อเอาเมาส์ไปชี้ (Hover) */
     .stButton>button:hover { 
         transform: scale(1.02); 
-        border-color: #2e7bcf; 
-        color: #2e7bcf; 
     }
-    /* 🌟 สไตล์เฉพาะสำหรับปุ่มสีหลัก (Primary Button - สีฟ้า) */
+    
+    /* 🌟 สีฟ้าสำหรับปุ่ม Primary ทั่วไป (เช่น บันทึก) */
     button[kind="primary"] {
         background-color: #2e7bcf !important;
         border-color: #2e7bcf !important;
         color: white !important;
     }
-    /* 🌟 สไตล์ปุ่มสีหลักเมื่อ Hover */
     button[kind="primary"]:hover {
         background-color: #1c5a9e !important;
         border-color: #1c5a9e !important;
+        color: white !important;
+    }
+
+    /* 🌟 สีแดงสำหรับปุ่ม "ลบ" โดยอ้างอิงจากข้อความ (aria-label) */
+    button[aria-label="ลบรายการเวชภัณฑ์ถาวร"], 
+    button[aria-label="ลบผู้ใช้งาน"], 
+    button[aria-label="❌ ลบรายการนี้"] {
+        background-color: #e74c3c !important;
+        border-color: #e74c3c !important;
+        color: white !important;
+    }
+    button[aria-label="ลบรายการเวชภัณฑ์ถาวร"]:hover, 
+    button[aria-label="ลบผู้ใช้งาน"]:hover, 
+    button[aria-label="❌ ลบรายการนี้"]:hover {
+        background-color: #c0392b !important;
+        border-color: #c0392b !important;
         color: white !important;
     }
 
@@ -1047,7 +1059,6 @@ else:
             else:
                 st.info("ยังไม่มีข้อมูลเวชภัณฑ์")
 
-        # 🌟 V53 - ปลดล็อก Form เปลี่ยนมาใช้ Container เพื่อให้ซ่อน/แสดง ฟิลด์ได้แบบ Real-time
         with tab2:
             with st.container(border=True):
                 st.markdown("#### เพิ่มรายการเวชภัณฑ์ใหม่")
@@ -1058,11 +1069,9 @@ else:
                 ncat = c2.selectbox("หมวดหมู่", ["เวชภัณฑ์ยา", "เวชภัณฑ์ที่มิใช่ยา"], key="add_cat")
                 
                 final_group = "-"
-                # 🌟 โชว์ให้เลือกกลุ่มยา เฉพาะเมื่อเป็น "เวชภัณฑ์ยา"
                 if ncat == "เวชภัณฑ์ยา":
                     ngroup_choice = st.selectbox("กลุ่มยา", group_options, key="add_group_choice")
                     
-                    # 🌟 โชว์ช่องพิมพ์ เฉพาะเมื่อเลือก "เพิ่มกลุ่มยาใหม่เอง"
                     if ngroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
                         ngroup_custom = st.text_input("พิมพ์ชื่อกลุ่มยาใหม่", key="add_group_custom")
                         final_group = ngroup_custom.strip() if ngroup_custom.strip() else "-"
@@ -1106,18 +1115,21 @@ else:
                     
                     st.divider()
                     
+                    # 🌟 V54: สร้าง Dynamic Key โดยผูกกับรหัสยาที่เลือก เพื่อบังคับให้ฟอร์มอัปเดตข้อมูลใหม่เสมอ
+                    k_suffix = str(selected_id_real)
+                    
                     with st.container(border=True):
                         st.markdown("#### แก้ไขข้อมูล")
                         c1, c2 = st.columns(2)
                         
                         display_nid = "" if str(selected_id_real).startswith("SYS-") else selected_id_real
-                        e_id = c1.text_input("รหัสยามาตรฐาน (แก้ไขหรือเพิ่มใหม่ได้เลย หากเว้นว่างระบบจะใช้รหัสอัตโนมัติ)", value=display_nid, key="edit_id")
+                        e_id = c1.text_input("รหัสยามาตรฐาน (แก้ไขหรือเพิ่มใหม่ได้เลย หากเว้นว่างระบบจะใช้รหัสอัตโนมัติ)", value=display_nid, key=f"edit_id_{k_suffix}")
                         
                         old_name = "" if pd.isna(med_info['generic_name']) else med_info['generic_name']
-                        e_name = c2.text_input("ชื่อสามัญ (Generic Name)", value=old_name, key="edit_name")
+                        e_name = c2.text_input("ชื่อสามัญ (Generic Name)", value=old_name, key=f"edit_name_{k_suffix}")
                         
                         old_unit = "" if pd.isna(med_info['unit']) else med_info['unit']
-                        e_unit = c1.text_input("หน่วยนับ", value=old_unit, key="edit_unit")
+                        e_unit = c1.text_input("หน่วยนับ", value=old_unit, key=f"edit_unit_{k_suffix}")
                         
                         cat_options = ["เวชภัณฑ์ยา", "เวชภัณฑ์ที่มิใช่ยา"]
                         current_cat = str(med_info.get('category', ''))
@@ -1125,10 +1137,9 @@ else:
                         elif current_cat in ['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา']: cat_idx = 1 
                         else: cat_idx = 0 
                             
-                        e_cat = c2.selectbox("หมวดหมู่", cat_options, index=cat_idx, key="edit_cat")
+                        e_cat = c2.selectbox("หมวดหมู่", cat_options, index=cat_idx, key=f"edit_cat_{k_suffix}")
                         
                         final_egroup = "-"
-                        # 🌟 โชว์ช่องกลุ่มยา เฉพาะเมื่อเลือกหมวดหมู่เป็นเวชภัณฑ์ยา
                         if e_cat == "เวชภัณฑ์ยา":
                             current_group = str(med_info.get('drug_group', '-'))
                             if current_group == 'None' or current_group == 'nan' or current_group == '': 
@@ -1143,10 +1154,10 @@ else:
                                 else:
                                     group_idx = 0
                                     
-                            egroup_choice = st.selectbox("กลุ่มยา", group_options, index=group_idx, key="edit_group_choice")
+                            egroup_choice = st.selectbox("กลุ่มยา", group_options, index=group_idx, key=f"edit_group_choice_{k_suffix}")
                             
                             if egroup_choice == "➕ พิมพ์เพิ่มกลุ่มยาใหม่เอง...":
-                                egroup_custom = st.text_input("พิมพ์ชื่อกลุ่มยาใหม่", value="", key="edit_group_custom")
+                                egroup_custom = st.text_input("พิมพ์ชื่อกลุ่มยาใหม่", value="", key=f"edit_group_custom_{k_suffix}")
                                 final_egroup = egroup_custom.strip() if egroup_custom.strip() else "-"
                             elif egroup_choice != "- (ไม่มีกลุ่มยา / ไม่ระบุ)":
                                 final_egroup = egroup_choice
@@ -1154,10 +1165,10 @@ else:
                             final_egroup = "-"
                         
                         min_stock_val = 0 if pd.isna(med_info.get('min_stock')) else int(med_info.get('min_stock', 0))
-                        e_min = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val, key="edit_min")
-                        e_active = st.checkbox("เปิดใช้งานรายการนี้ (นำไปรับ/เบิกได้ปกติ)", value=bool(med_info['is_active']), key="edit_active")
+                        e_min = st.number_input("จุดสั่งซื้อ (Min Stock)", min_value=0, value=min_stock_val, key=f"edit_min_{k_suffix}")
+                        e_active = st.checkbox("เปิดใช้งานรายการนี้ (นำไปรับ/เบิกได้ปกติ)", value=bool(med_info['is_active']), key=f"edit_active_{k_suffix}")
                         
-                        if st.button("บันทึกการแก้ไข", use_container_width=True, type="primary", key="btn_save_edit"):
+                        if st.button("บันทึกการแก้ไข", use_container_width=True, type="primary", key=f"btn_save_edit_{k_suffix}"):
                             if e_name and e_unit:
                                 final_new_id = e_id.strip()
                                 if final_new_id == "":
@@ -1200,9 +1211,10 @@ else:
                     
                     del_col1, del_col2 = st.columns([1, 1])
                     with del_col1:
-                        confirm_del = st.checkbox("ยืนยันว่าต้องการลบรายการนี้ทิ้งถาวร", key="confirm_delete_box")
+                        confirm_del = st.checkbox("ยืนยันว่าต้องการลบรายการนี้ทิ้งถาวร", key=f"confirm_delete_box_{k_suffix}")
                     with del_col2:
-                        if st.button("ลบรายการเวชภัณฑ์ถาวร", type="primary", use_container_width=True):
+                        # 🌟 ปุ่มลบรายการ จะโดน CSS ทำให้เป็นสีแดงอัตโนมัติ
+                        if st.button("ลบรายการเวชภัณฑ์ถาวร", type="primary", use_container_width=True, key=f"btn_del_med_{k_suffix}"):
                             if confirm_del:
                                 try:
                                     supabase.table("medicines").delete().eq("id", selected_id_real).execute()

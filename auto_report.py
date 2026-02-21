@@ -68,7 +68,7 @@ def generate_and_send_report():
         msg_part2 += "\n(ไม่มีการเคลื่อนไหว)"
         msg_part3 += "\n(ไม่มีการเคลื่อนไหว)"
 
-    msg_part4 = "\n\n⚠️ ต่ำกว่าจุดสั่งซื้อ"
+    msg_part4 = "\n\n⚠️ แจ้งเตือน: ต้องสั่งซื้อเพิ่ม"
     if not meds.empty:
         if not inv_df.empty:
             inv_agg = inv_df.groupby('medicine_id')['qty'].sum().reset_index()
@@ -79,8 +79,16 @@ def generate_and_send_report():
             df_stock['qty'] = 0
             
         low_stock = df_stock[df_stock['qty'] <= df_stock['min_stock']]
-        msg_part4 += f" ({len(low_stock)} รายการ)"
+        
+        # 🌟 อัปเดต: แยกนับจำนวน ยา และ ไม่ใช่ยา
         if not low_stock.empty:
+            low_drugs_count = len(low_stock[low_stock['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
+            low_supplies_count = len(low_stock[low_stock['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
+            
+            msg_part4 += f"\nรวม {len(low_stock)} รายการ แบ่งเป็น:"
+            msg_part4 += f"\n💊 เวชภัณฑ์ยา: {low_drugs_count} รายการ"
+            msg_part4 += f"\n📦 เวชภัณฑ์มิใช่ยา: {low_supplies_count} รายการ\n"
+            
             for _, row in low_stock.head(10).iterrows():
                 msg_part4 += f"\n- {row['generic_name']}: เหลือ {int(row['qty'])}"
             if len(low_stock) > 10: msg_part4 += f"\n...และอื่นๆ อีก {len(low_stock)-10} รายการ"

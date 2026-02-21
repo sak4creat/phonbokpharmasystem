@@ -9,10 +9,35 @@ import os
 # --- 1. ตั้งค่าและเชื่อมต่อ (SETUP) ---
 st.set_page_config(page_title="ระบบคลังยา รพ.สต. โพนบก", layout="wide", page_icon="🏥")
 
+# 🌟 แก้ไข CSS: เปลี่ยนสีปุ่ม Primary เป็นสีฟ้า
 st.markdown("""
 <style>
-    .stButton>button { border-radius: 8px; transition: all 0.3s ease; border: 1px solid #e0e0e0; font-weight: bold; }
-    .stButton>button:hover { transform: scale(1.02); border-color: #2e7bcf; color: #2e7bcf; }
+    /* สไตล์ปุ่มทั่วไป */
+    .stButton>button { 
+        border-radius: 8px; 
+        transition: all 0.3s ease; 
+        border: 1px solid #e0e0e0; 
+        font-weight: bold; 
+    }
+    /* สไตล์ปุ่มเมื่อเอาเมาส์ไปชี้ (Hover) */
+    .stButton>button:hover { 
+        transform: scale(1.02); 
+        border-color: #2e7bcf; 
+        color: #2e7bcf; 
+    }
+    /* 🌟 สไตล์เฉพาะสำหรับปุ่มสีหลัก (Primary Button - สีฟ้า) */
+    button[kind="primary"] {
+        background-color: #2e7bcf !important;
+        border-color: #2e7bcf !important;
+        color: white !important;
+    }
+    /* 🌟 สไตล์ปุ่มสีหลักเมื่อ Hover */
+    button[kind="primary"]:hover {
+        background-color: #1c5a9e !important;
+        border-color: #1c5a9e !important;
+        color: white !important;
+    }
+
     [data-testid="stForm"], [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 10px; border: 1px solid #f0f2f6; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 2rem; }
     [data-testid="stAlert"] { border-radius: 8px; }
     [data-testid="stMetricValue"] { color: #2e7bcf; }

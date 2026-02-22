@@ -5,13 +5,11 @@ import pandas as pd
 import datetime
 from supabase import create_client
 
-# ดึงกุญแจความลับจาก GitHub Secrets
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 LINE_TOKEN = os.environ.get("LINE_BOT_TOKEN")
 LINE_TARGET_ID = os.environ.get("LINE_TARGET_ID")
 
-# ใช้กุญแจ service_role จะทะลุระบบรักษาความปลอดภัย (RLS) ได้ 100%
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 THAI_MONTHS = {'01': 'มกราคม', '02': 'กุมภาพันธ์', '03': 'มีนาคม', '04': 'เมษายน', '05': 'พฤษภาคม', '06': 'มิถุนายน', '07': 'กรกฎาคม', '08': 'สิงหาคม', '09': 'กันยายน', '10': 'ตุลาคม', '11': 'พฤศจิกายน', '12': 'ธันวาคม'}
@@ -52,13 +50,22 @@ def generate_and_send_report():
         send_line_message(LINE_TOKEN, LINE_TARGET_ID, final_message)
         return
 
-    # ทำความสะอาดหมวดหมู่
     meds['category'] = meds['category'].astype(str).str.strip() 
-    drugs_count = len(meds[meds['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
-    supplies_count = len(meds[meds['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
 
-    msg_part1 = f"\n\n🏥 ข้อมูล ณ ปัจจุบัน:\n- เวชภัณฑ์ยา: {drugs_count} รายการ\n- เวชภัณฑ์มิใช่ยา: {supplies_count} รายการ"
+    # 🌟 1. ข้อมูล ณ ปัจจุบัน (นับเฉพาะที่มีของในคลัง > 0)
+    drugs_in_stock = 0
+    supplies_in_stock = 0
+    if not inv_df.empty:
+        inv_agg_current = inv_df.groupby('medicine_id')['qty'].sum().reset_index()
+        inv_active_current = inv_agg_current[inv_agg_current['qty'] > 0]
+        if not inv_active_current.empty:
+            active_meds = pd.merge(inv_active_current, meds, left_on='medicine_id', right_on='id', how='left')
+            drugs_in_stock = len(active_meds[active_meds['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
+            supplies_in_stock = len(active_meds[active_meds['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
 
+    msg_part1 = f"\n\n🏥 ข้อมูล ณ ปัจจุบัน (ที่มียอดคงเหลือ):\n- เวชภัณฑ์ยา: {drugs_in_stock} รายการ\n- เวชภัณฑ์มิใช่ยา: {supplies_in_stock} รายการ"
+
+    # 🌟 2. สรุปการรับ-จ่าย
     msg_part2 = "\n\n📥 รับเข้ามากที่สุด 5 อันดับ:"
     msg_part3 = "\n\n📤 เบิกจ่ายมากที่สุด 5 อันดับ:"
     
@@ -88,7 +95,7 @@ def generate_and_send_report():
         msg_part2 += "\n(ไม่มีการเคลื่อนไหว)"
         msg_part3 += "\n(ไม่มีการเคลื่อนไหว)"
 
-    # 🌟 คำนวณต่ำกว่าจุดสั่งซื้อ
+    # 🌟 3. ต่ำกว่าจุดสั่งซื้อ (แสดงแค่ยอดรวม ตัดรายชื่อทิ้ง)
     msg_part4 = "\n\n⚠️ แจ้งเตือน: ต่ำกว่าจุดสั่งซื้อ"
     
     if not inv_df.empty:
@@ -99,7 +106,6 @@ def generate_and_send_report():
         df_stock = meds.copy()
         df_stock['qty'] = 0
         
-    # บังคับแปลงตัวเลข
     df_stock['qty'] = pd.to_numeric(df_stock['qty'], errors='coerce').fillna(0)
     df_stock['min_stock'] = pd.to_numeric(df_stock['min_stock'], errors='coerce').fillna(0)
         
@@ -112,16 +118,7 @@ def generate_and_send_report():
     msg_part4 += f"\n💊 เวชภัณฑ์ยา จำนวน {low_drugs} รายการ"
     msg_part4 += f"\n📦 เวชภัณฑ์ที่มิใช่ยา จำนวน {low_supplies} รายการ"
 
-    if low_total > 0:
-        low_stock = low_stock.sort_values(by='qty')
-        count = 0
-        for _, row in low_stock.iterrows():
-            if count >= 10: break
-            msg_part4 += f"\n- {row['generic_name']}: เหลือ {int(row['qty'])} (เป้า: {int(row['min_stock'])})"
-            count += 1
-        if low_total > 10: 
-            msg_part4 += f"\n...และอื่นๆ อีก {low_total-10} รายการ"
-
+    # 🌟 4. แจ้งเตือนใกล้หมดอายุ
     msg_part5 = "\n\n⏰ แจ้งเตือน: ใกล้หมดอายุ (<90 วัน)"
     if not inv_df.empty:
         inv_active = inv_df[inv_df['qty'] > 0].copy()

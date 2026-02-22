@@ -385,51 +385,75 @@ else:
                 else: st.info("ไม่มีผู้ใช้งานอื่นในระบบ")
                     
         with tab_line:
-            st.subheader("🗓️ ตั้งค่าวันส่งรายงานอัตโนมัติ (รายเดือน)")
-            st.info("ระบบจะสรุปข้อมูลของ 'เดือนที่แล้ว' ส่งให้ตามวันที่คุณกำหนดด้านล่างนี้")
+            st.subheader("⚙️ ตั้งค่าการส่งรายงานและเชื่อมต่อ LINE")
+            st.info("กำหนดวันที่และใส่ Token (ระบบจะบันทึกและยึดค่าที่กรอกครั้งล่าสุดเสมอ)")
             
+            # ดึงค่าเก่าจากฐานข้อมูลมาโชว์
             try:
-                set_res = supabase.table("settings").select("report_day").eq("id", 1).execute()
-                current_day = int(set_res.data[0]['report_day']) if set_res.data else 1
+                set_res = supabase.table("settings").select("*").eq("id", 1).execute()
+                if set_res.data:
+                    current_day = int(set_res.data[0].get('report_day', 1))
+                    current_token = str(set_res.data[0].get('line_token', ''))
+                    current_target = str(set_res.data[0].get('line_target_id', ''))
+                else:
+                    current_day, current_token, current_target = 1, "", ""
             except:
-                current_day = 1
+                current_day, current_token, current_target = 1, "", ""
                 
-            new_day = st.number_input("กำหนดวันที่ต้องการให้ระบบส่งรายงาน:", min_value=1, max_value=28, value=current_day, help="เลือกได้ตั้งแต่วันที่ 1 ถึง 28")
+            new_day = st.number_input("📅 กำหนดวันที่ต้องการให้ระบบส่งรายงานอัตโนมัติ (รายเดือน):", min_value=1, max_value=28, value=current_day, help="เลือกได้ตั้งแต่วันที่ 1 ถึง 28")
             
-            col_save_btn, col_save_empty = st.columns([1, 4]) 
-            with col_save_btn:
-                if st.button("💾 บันทึกวันส่งรายงาน", use_container_width=True):
+            st.markdown("<br>##### 📱 ตั้งค่า LINE Messaging API", unsafe_allow_html=True)
+            line_token_input = st.text_input("1. LINE Channel Access Token", value=current_token, type="password")
+            line_target_id = st.text_input("2. LINE User ID หรือ Group ID ปลายทาง", value=current_target, type="password")
+            
+            st.divider()
+            
+            # จัดปุ่มเรียง ซ้าย - ขวา
+            col_btn_left, col_btn_right = st.columns(2)
+            
+            with col_btn_left:
+                if st.button("💾 บันทึกการตั้งค่า", use_container_width=True):
+                    # ถ้ามีการวางซ้ำๆ ดึงเอาคำล่าสุดมาใช้ (เพื่อความชัวร์)
+                    clean_token = line_token_input.strip().split()[-1] if line_token_input.strip() else ""
+                    clean_target = line_target_id.strip().split()[-1] if line_target_id.strip() else ""
+                    
                     try:
                         check = supabase.table("settings").select("id").eq("id", 1).execute()
                         if check.data:
-                            supabase.table("settings").update({"report_day": new_day}).eq("id", 1).execute()
+                            supabase.table("settings").update({
+                                "report_day": new_day,
+                                "line_token": clean_token,
+                                "line_target_id": clean_target
+                            }).eq("id", 1).execute()
                         else:
-                            supabase.table("settings").insert({"id": 1, "report_day": new_day}).execute()
-                        st.success(f"✅ บันทึกสำเร็จ! ระบบจะส่งรายงานทุกวันที่ {new_day} ของเดือน")
+                            supabase.table("settings").insert({
+                                "id": 1, 
+                                "report_day": new_day,
+                                "line_token": clean_token,
+                                "line_target_id": clean_target
+                            }).execute()
+                        st.success(f"✅ บันทึกข้อมูลเรียบร้อยแล้ว! (ยึดค่าที่กรอกล่าสุด)")
                         time.sleep(1.5)
                         st.rerun()
                     except Exception as e:
-                        st.error("❌ ไม่สามารถบันทึกได้ กรุณาสร้าง Table 'settings' ในระบบก่อนครับ")
+                        st.error(f"❌ บันทึกไม่ได้: กรุณาไปรันคำสั่ง SQL เพื่อเพิ่มคอลัมน์ใน Supabase ก่อนครับ")
 
-            st.divider()
-            
-            st.subheader("📱 ทดสอบส่งรายงานบทสรุปผู้บริหารเข้า LINE")
-            st.info("ใช้ระบบ LINE Messaging API (LINE Official Account)")
-            line_token_input = st.text_input("1. LINE Channel Access Token (จากแท็บ Messaging API)", type="password")
-            line_target_id = st.text_input("2. LINE User ID หรือ Group ID ปลายทาง (เช่น U1a2b3c...)", type="password")
-            
-            col_test_empty, col_test_btn = st.columns([2, 1])
-            with col_test_btn:
+            with col_btn_right:
                 if st.button("🚀 ทดลองส่งรายงานสรุปของเดือนที่ผ่านมา เข้า LINE", type="primary", use_container_width=True):
-                    if line_token_input and line_target_id:
+                    test_token = line_token_input.strip().split()[-1] if line_token_input.strip() else ""
+                    test_target = line_target_id.strip().split()[-1] if line_target_id.strip() else ""
+                    
+                    if test_token and test_target:
                         with st.spinner("กำลังรวบรวมข้อมูลและสร้างรายงาน... (ทดสอบจากฐานข้อมูลจริง)"):
                             report_text = generate_monthly_executive_report()
-                            success = send_line_message(line_token_input, line_target_id, report_text)
+                            success = send_line_message(test_token, test_target, report_text)
                             if success:
                                 st.success("✅ ส่งรายงานเข้า LINE สำเร็จ! ลองเช็กในแอป LINE ของคุณดูครับ")
                                 with st.expander("ดูตัวอย่างข้อความที่ถูกส่งไป"): st.text(report_text)
-                            else: st.error("❌ ส่งไม่สำเร็จ! กรุณาตรวจสอบว่า Token และ User ID ถูกต้องหรือไม่")
-                    else: st.warning("กรุณาใส่ Token และ Target ID ให้ครบถ้วนก่อนกดส่งครับ")
+                            else: 
+                                st.error("❌ ส่งไม่สำเร็จ! กรุณาตรวจสอบว่า Token และ User ID ถูกต้องหรือไม่")
+                    else: 
+                        st.warning("กรุณาใส่ Token และ Target ID ให้ครบถ้วนก่อนกดส่งครับ")
 
     # ----------------------------------------------------------------------
     # 🖥️ แดชบอร์ด

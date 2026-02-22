@@ -10,6 +10,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 LINE_TOKEN = os.environ.get("LINE_BOT_TOKEN")
 LINE_TARGET_ID = os.environ.get("LINE_TARGET_ID")
 
+# ใช้กุญแจ service_role จะทะลุ RLS ได้ 100%
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 THAI_MONTHS = {'01': 'มกราคม', '02': 'กุมภาพันธ์', '03': 'มีนาคม', '04': 'เมษายน', '05': 'พฤษภาคม', '06': 'มิถุนายน', '07': 'กรกฎาคม', '08': 'สิงหาคม', '09': 'กันยายน', '10': 'ตุลาคม', '11': 'พฤศจิกายน', '12': 'ธันวาคม'}
@@ -30,29 +31,35 @@ def generate_and_send_report():
     year_th = last_day_of_prev_month.year + 543
     report_title = f"📊 สรุปคลังเวชภัณฑ์ประจำเดือน {month_name} {year_th}"
 
-    meds_res = supabase.table("medicines").select("id, generic_name, unit, min_stock, category").eq("is_active", True).execute()
-    meds = pd.DataFrame(meds_res.data)
-    inv_df = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
-    trans_res = supabase.table("transactions").select("*").gte("created_at", str(first_day_of_prev_month)).lt("created_at", str(first_day_of_this_month)).execute()
-    trans_df = pd.DataFrame(trans_res.data)
+    try:
+        meds_res = supabase.table("medicines").select("*").eq("is_active", True).execute()
+        meds = pd.DataFrame(meds_res.data)
+        inv_df = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
+        trans_res = supabase.table("transactions").select("*").gte("created_at", str(first_day_of_prev_month)).lt("created_at", str(first_day_of_this_month)).execute()
+        trans_df = pd.DataFrame(trans_res.data)
+    except Exception as e:
+        send_line_message(LINE_TOKEN, LINE_TARGET_ID, f"❌ เกิดข้อผิดพลาดการดึงข้อมูล: {e}")
+        return
 
-    if not meds.empty:
+    if meds.empty:
+        msg_part1 = "\n\n❌ ไม่พบข้อมูล Master Data ในระบบ"
+        drugs_count, supplies_count = 0, 0
+    else:
         meds['category'] = meds['category'].astype(str).str.strip() 
         drugs_count = len(meds[meds['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
         supplies_count = len(meds[meds['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
-    else:
-        drugs_count, supplies_count = 0, 0
-
-    msg_part1 = f"\n\n🏥 ข้อมูล ณ ปัจจุบัน:\n- เวชภัณฑ์ยา: {drugs_count} รายการ\n- เวชภัณฑ์มิใช่ยา: {supplies_count} รายการ"
+        msg_part1 = f"\n\n🏥 ข้อมูล ณ ปัจจุบัน:\n- เวชภัณฑ์ยา: {drugs_count} รายการ\n- เวชภัณฑ์มิใช่ยา: {supplies_count} รายการ"
 
     msg_part2 = "\n\n📥 รับเข้ามากที่สุด 5 อันดับ:"
     msg_part3 = "\n\n📤 เบิกจ่ายมากที่สุด 5 อันดับ:"
+    
     if not trans_df.empty and not meds.empty:
         df_merged = pd.merge(trans_df, meds[['id', 'generic_name', 'unit']], left_on='medicine_id', right_on='id', how='left')
         df_recv = df_merged[df_merged['action_type'] == 'RECEIVE'].groupby('generic_name')['qty_change'].sum().reset_index().sort_values(by='qty_change', ascending=False).head(5)
         if not df_recv.empty:
             for idx, row in df_recv.iterrows():
-                unit = meds[meds['generic_name'] == row['generic_name']]['unit'].values[0] if not meds[meds['generic_name'] == row['generic_name']].empty else ''
+                unit_vals = meds[meds['generic_name'] == row['generic_name']]['unit'].values
+                unit = unit_vals[0] if len(unit_vals) > 0 else ''
                 msg_part2 += f"\n{idx+1}. {row['generic_name']} (+{int(row['qty_change'])} {unit})"
         else: msg_part2 += "\n(ไม่มีการเคลื่อนไหว)"
 
@@ -61,7 +68,8 @@ def generate_and_send_report():
         df_disp = df_disp.groupby('generic_name')['qty_change'].sum().reset_index().sort_values(by='qty_change', ascending=False).head(5)
         if not df_disp.empty:
             for idx, row in df_disp.iterrows():
-                unit = meds[meds['generic_name'] == row['generic_name']]['unit'].values[0] if not meds[meds['generic_name'] == row['generic_name']].empty else ''
+                unit_vals = meds[meds['generic_name'] == row['generic_name']]['unit'].values
+                unit = unit_vals[0] if len(unit_vals) > 0 else ''
                 msg_part3 += f"\n{idx+1}. {row['generic_name']} (-{int(row['qty_change'])} {unit})"
         else: msg_part3 += "\n(ไม่มีการเคลื่อนไหว)"
     else:
@@ -73,13 +81,13 @@ def generate_and_send_report():
         if not inv_df.empty:
             inv_agg = inv_df.groupby('medicine_id')['qty'].sum().reset_index()
             df_stock = pd.merge(meds, inv_agg, left_on='id', right_on='medicine_id', how='left')
+            df_stock['qty'] = df_stock['qty'].fillna(0)
         else:
             df_stock = meds.copy()
             df_stock['qty'] = 0
             
         df_stock['qty'] = pd.to_numeric(df_stock['qty'], errors='coerce').fillna(0)
         df_stock['min_stock'] = pd.to_numeric(df_stock['min_stock'], errors='coerce').fillna(0)
-        df_stock['category'] = df_stock['category'].astype(str).str.strip()
             
         low_stock = df_stock[df_stock['qty'] <= df_stock['min_stock']]
         low_total = len(low_stock)
@@ -88,17 +96,21 @@ def generate_and_send_report():
 
         msg_part4 += f"\nรวมทั้งหมด {low_total} รายการ แบ่งเป็น:"
         msg_part4 += f"\n💊 เวชภัณฑ์ยา จำนวน {low_drugs} รายการ"
-        msg_part4 += f"\n📦 เวชภัณฑ์ที่มิใช่ยา จำนวน {low_supplies} รายการ\n"
+        msg_part4 += f"\n📦 เวชภัณฑ์ที่มิใช่ยา จำนวน {low_supplies} รายการ"
 
         if low_total > 0:
-            for _, row in low_stock.head(10).iterrows():
+            low_stock = low_stock.sort_values(by='qty')
+            count = 0
+            for _, row in low_stock.iterrows():
+                if count >= 10: break
                 msg_part4 += f"\n- {row['generic_name']}: เหลือ {int(row['qty'])} (เป้า: {int(row['min_stock'])})"
+                count += 1
             if low_total > 10: msg_part4 += f"\n...และอื่นๆ อีก {low_total-10} รายการ"
     else:
         msg_part4 += "\n(ไม่มีข้อมูล Master Data)"
 
     msg_part5 = "\n\n⏰ แจ้งเตือน: ใกล้หมดอายุ (<90 วัน)"
-    if not inv_df.empty:
+    if not inv_df.empty and not meds.empty:
         inv_active = inv_df[inv_df['qty'] > 0].copy()
         if not inv_active.empty:
             inv_active['exp_date'] = pd.to_datetime(inv_active['exp_date'])
@@ -106,8 +118,11 @@ def generate_and_send_report():
             if not near_exp_raw.empty:
                 near_exp = pd.merge(near_exp_raw, meds[['id', 'generic_name']], left_on='medicine_id', right_on='id', how='left')
                 msg_part5 += f" ({len(near_exp)} ล็อต)"
-                for _, row in near_exp.head(10).iterrows():
+                count_exp = 0
+                for _, row in near_exp.iterrows():
+                    if count_exp >= 10: break
                     msg_part5 += f"\n- {row['generic_name']}\n  เหลือ {int(row['qty'])} | หมด: {row['exp_date'].strftime('%d/%m/%Y')}"
+                    count_exp += 1
                 if len(near_exp) > 10: msg_part5 += f"\n...และอื่นๆ อีก {len(near_exp)-10} ล็อต"
             else: msg_part5 += "\n(ไม่มีรายการเสี่ยงหมดอายุ)"
         else: msg_part5 += "\n(ไม่มีรายการเสี่ยงหมดอายุ)"

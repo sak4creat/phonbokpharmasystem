@@ -244,7 +244,6 @@ def generate_monthly_executive_report():
     final_message = report_title + msg_part1 + msg_part2 + msg_part3 + msg_part4 + msg_part5
     return final_message
 
-
 # --- 4. ส่วนหน้าจอ (FRONTEND) ---
 if not st.session_state.user:
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -395,11 +394,10 @@ else:
             except:
                 current_day = 1
                 
-            col_d1, col_d2 = st.columns([2, 1])
-            with col_d1:
-                new_day = st.number_input("กำหนดวันที่ต้องการให้ระบบส่งรายงาน:", min_value=1, max_value=28, value=current_day, help="เลือกได้ตั้งแต่วันที่ 1 ถึง 28")
-            with col_d2:
-                st.markdown("<br>", unsafe_allow_html=True)
+            new_day = st.number_input("กำหนดวันที่ต้องการให้ระบบส่งรายงาน:", min_value=1, max_value=28, value=current_day, help="เลือกได้ตั้งแต่วันที่ 1 ถึง 28")
+            
+            col_save_btn, col_save_empty = st.columns([1, 4]) 
+            with col_save_btn:
                 if st.button("💾 บันทึกวันส่งรายงาน", use_container_width=True):
                     try:
                         check = supabase.table("settings").select("id").eq("id", 1).execute()
@@ -420,16 +418,18 @@ else:
             line_token_input = st.text_input("1. LINE Channel Access Token (จากแท็บ Messaging API)", type="password")
             line_target_id = st.text_input("2. LINE User ID หรือ Group ID ปลายทาง (เช่น U1a2b3c...)", type="password")
             
-            if st.button("🚀 จำลองการส่งรายงานสรุปของเดือนที่แล้วเข้า LINE", type="primary"):
-                if line_token_input and line_target_id:
-                    with st.spinner("กำลังรวบรวมข้อมูลและสร้างรายงาน... (ทดสอบจากฐานข้อมูลจริง)"):
-                        report_text = generate_monthly_executive_report()
-                        success = send_line_message(line_token_input, line_target_id, report_text)
-                        if success:
-                            st.success("✅ ส่งรายงานเข้า LINE สำเร็จ! ลองเช็กในแอป LINE ของคุณดูครับ")
-                            with st.expander("ดูตัวอย่างข้อความที่ถูกส่งไป"): st.text(report_text)
-                        else: st.error("❌ ส่งไม่สำเร็จ! กรุณาตรวจสอบว่า Token และ User ID ถูกต้องหรือไม่")
-                else: st.warning("กรุณาใส่ Token และ Target ID ให้ครบถ้วนก่อนกดส่งครับ")
+            col_test_empty, col_test_btn = st.columns([2, 1])
+            with col_test_btn:
+                if st.button("🚀 ทดลองส่งรายงานสรุปของเดือนที่ผ่านมา เข้า LINE", type="primary", use_container_width=True):
+                    if line_token_input and line_target_id:
+                        with st.spinner("กำลังรวบรวมข้อมูลและสร้างรายงาน... (ทดสอบจากฐานข้อมูลจริง)"):
+                            report_text = generate_monthly_executive_report()
+                            success = send_line_message(line_token_input, line_target_id, report_text)
+                            if success:
+                                st.success("✅ ส่งรายงานเข้า LINE สำเร็จ! ลองเช็กในแอป LINE ของคุณดูครับ")
+                                with st.expander("ดูตัวอย่างข้อความที่ถูกส่งไป"): st.text(report_text)
+                            else: st.error("❌ ส่งไม่สำเร็จ! กรุณาตรวจสอบว่า Token และ User ID ถูกต้องหรือไม่")
+                    else: st.warning("กรุณาใส่ Token และ Target ID ให้ครบถ้วนก่อนกดส่งครับ")
 
     # ----------------------------------------------------------------------
     # 🖥️ แดชบอร์ด

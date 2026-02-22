@@ -21,23 +21,31 @@ def send_line_message(token, target_id, message):
     requests.post(url, headers=headers, data=json.dumps(data))
 
 def generate_and_send_report():
-    # 🌟 1. ดึงข้อมูลว่าตั้งค่าให้ส่งวันที่เท่าไหร่
+    # 🌟 1. ดึงข้อมูลการตั้งค่า (วัน และ เวลา) จากฐานข้อมูล
     try:
-        settings_res = supabase.table("settings").select("report_day").eq("id", 1).execute()
-        target_day = int(settings_res.data[0]['report_day']) if settings_res.data else 1
+        settings_res = supabase.table("settings").select("*").eq("id", 1).execute()
+        if settings_res.data:
+            target_day = int(settings_res.data[0].get('report_day', 1))
+            target_hour = int(settings_res.data[0].get('report_hour', 10))
+        else:
+            target_day, target_hour = 1, 10
     except:
-        target_day = 1 # ถ้าหาไม่เจอ ให้ยึดวันที่ 1 เป็นหลัก
+        target_day, target_hour = 1, 10
         
-    today = datetime.date.today()
+    # 🌟 2. ดึงเวลาปัจจุบัน (เวลาประเทศไทย UTC+7)
+    tz_th = datetime.timezone(datetime.timedelta(hours=7))
+    now_th = datetime.datetime.now(tz_th)
+    current_day = now_th.day
+    current_hour = now_th.hour
     
-    # 🌟 2. ถ้านี่ไม่ใช่วันที่กำหนดไว้ ให้หยุดการทำงานทันที (ไม่ส่งไลน์)
-    if today.day != target_day:
-        print(f"วันนี้วันที่ {today.day} (กำหนดส่งคือวันที่ {target_day}) -> ข้ามการส่งรายงาน")
+    # 🌟 3. ตรวจสอบว่า "วัน" และ "ชั่วโมง" ตรงกับที่ตั้งไว้หรือไม่
+    if current_day != target_day or current_hour != target_hour:
+        print(f"ยังไม่ถึงเวลาส่ง -> ปัจจุบัน: วันที่ {current_day} เวลา {current_hour}:00 | กำหนดส่ง: วันที่ {target_day} เวลา {target_hour}:00")
         return
         
-    print(f"ตรงกับวันส่งรายงาน (วันที่ {target_day}) -> เริ่มสร้างรายงาน!")
+    print(f"✅ ถึงเวลาส่งรายงาน! (วันที่ {target_day} เวลา {target_hour}:00 น.) เริ่มดึงข้อมูล...")
 
-    first_day_of_this_month = today.replace(day=1)
+    first_day_of_this_month = now_th.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     last_day_of_prev_month = first_day_of_this_month - datetime.timedelta(days=1)
     first_day_of_prev_month = last_day_of_prev_month.replace(day=1)
     
@@ -135,7 +143,7 @@ def generate_and_send_report():
         inv_active = inv_df[inv_df['qty'] > 0].copy()
         if not inv_active.empty:
             inv_active['exp_date'] = pd.to_datetime(inv_active['exp_date'])
-            near_exp_raw = inv_active[inv_active['exp_date'] <= pd.to_datetime(today) + pd.Timedelta(days=90)]
+            near_exp_raw = inv_active[inv_active['exp_date'] <= now_th.replace(tzinfo=None) + pd.Timedelta(days=90)]
             if not near_exp_raw.empty:
                 near_exp = pd.merge(near_exp_raw, meds[['id', 'generic_name']], left_on='medicine_id', right_on='id', how='left')
                 msg_part5 += f" ({len(near_exp)} ล็อต)"

@@ -80,7 +80,7 @@ if 'reorder_manual_added' not in st.session_state: st.session_state.reorder_manu
 if 'reorder_manual_removed' not in st.session_state: st.session_state.reorder_manual_removed = []
 if 'reorder_quantities' not in st.session_state: st.session_state.reorder_quantities = {}
 
-THAI_MONTHS = {'01': 'มกราคม', '02': 'กุมภาพันธ์', '03': 'มีนาคม', '04': 'เมษายน', '05': 'พฤษภาคม', '06': 'มิถุนายน', '07': 'กรกฎาคม', '08': 'สิงหาคม', '09': 'กันยายน', '10': 'ตุลาคม', '11': 'พฤศจิกายน', '12': 'ธันวาคม'}
+THAI_MONTHS = {'01': 'มกราคม', '02': 'กุมภาพันธ์', '03': 'มีนาคม', '04': 'เมษายน', '05': 'พฤษภาคม', '06': 'มิถุนายน', '07': 'กร্যুกฎาคม', '08': 'สิงหาคม', '09': 'กันยายน', '10': 'ตุลาคม', '11': 'พฤศจิกายน', '12': 'ธันวาคม'}
 
 def format_thai_month(ym_str):
     if not isinstance(ym_str, str) or '-' not in ym_str: return ym_str
@@ -190,7 +190,7 @@ def send_line_message(token, target_id, message):
     except Exception as e:
         return False
 
-# 🌟 ฟังก์ชันสร้างรายงานสรุป (อัปเดตระบบคำนวณตรงกับ Dashboard 100%)
+# 🌟 ฟังก์ชันสร้างรายงานสรุป (อัปเดตระบบคำนวณล่าสุด: นับข้อมูลปัจจุบันเฉพาะที่มีสต๊อก + ซ่อนรายชื่อยาต่ำกว่าจุดสั่งซื้อ)
 def generate_monthly_executive_report():
     today = datetime.date.today()
     first_day_of_this_month = today.replace(day=1)
@@ -199,7 +199,7 @@ def generate_monthly_executive_report():
     
     month_name = THAI_MONTHS.get(last_day_of_prev_month.strftime('%m'))
     year_th = last_day_of_prev_month.year + 543
-    report_title = f"📊 สรุปคลังเวชภัณฑ์ประจำเดือน {month_name} {year_th}"
+    report_title = f"\n📊 สรุปคลังเวชภัณฑ์ประจำเดือน {month_name} {year_th}"
 
     try:
         meds_res = supabase.table("medicines").select("*").eq("is_active", True).execute()
@@ -219,10 +219,21 @@ def generate_monthly_executive_report():
         return report_title + msg_part1 + msg_part2 + msg_part3 + msg_part4 + msg_part5
 
     meds['category'] = meds['category'].astype(str).str.strip() 
-    drugs_count = len(meds[meds['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
-    supplies_count = len(meds[meds['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
-    msg_part1 = f"\n\n🏥 ข้อมูล ณ ปัจจุบัน:\n- เวชภัณฑ์ยา: {drugs_count} รายการ\n- เวชภัณฑ์มิใช่ยา: {supplies_count} รายการ"
 
+    # 🌟 1. ข้อมูล ณ ปัจจุบัน (นับเฉพาะที่มีของในคลัง > 0)
+    drugs_in_stock = 0
+    supplies_in_stock = 0
+    if not inv_df.empty:
+        inv_agg_current = inv_df.groupby('medicine_id')['qty'].sum().reset_index()
+        inv_active_current = inv_agg_current[inv_agg_current['qty'] > 0]
+        if not inv_active_current.empty:
+            active_meds = pd.merge(inv_active_current, meds, left_on='medicine_id', right_on='id', how='left')
+            drugs_in_stock = len(active_meds[active_meds['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
+            supplies_in_stock = len(active_meds[active_meds['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
+
+    msg_part1 = f"\n\n🏥 ข้อมูล ณ ปัจจุบัน (ที่มียอดคงเหลือ):\n- เวชภัณฑ์ยา: {drugs_in_stock} รายการ\n- เวชภัณฑ์มิใช่ยา: {supplies_in_stock} รายการ"
+
+    # 🌟 2. สรุปการรับ-จ่าย
     msg_part2 = "\n\n📥 รับเข้ามากที่สุด 5 อันดับ:"
     msg_part3 = "\n\n📤 เบิกจ่ายมากที่สุด 5 อันดับ:"
     
@@ -252,6 +263,7 @@ def generate_monthly_executive_report():
         msg_part2 += "\n(ไม่มีการเคลื่อนไหว)"
         msg_part3 += "\n(ไม่มีการเคลื่อนไหว)"
 
+    # 🌟 3. ต่ำกว่าจุดสั่งซื้อ (แสดงแค่ยอดรวม ตัดรายชื่อทิ้ง)
     msg_part4 = "\n\n⚠️ แจ้งเตือน: ต่ำกว่าจุดสั่งซื้อ"
     if not inv_df.empty:
         inv_agg = inv_df.groupby('medicine_id')['qty'].sum().reset_index()
@@ -273,15 +285,7 @@ def generate_monthly_executive_report():
     msg_part4 += f"\n💊 เวชภัณฑ์ยา จำนวน {low_drugs} รายการ"
     msg_part4 += f"\n📦 เวชภัณฑ์ที่มิใช่ยา จำนวน {low_supplies} รายการ"
 
-    if low_total > 0:
-        low_stock = low_stock.sort_values(by='qty')
-        count = 0
-        for _, row in low_stock.iterrows():
-            if count >= 10: break
-            msg_part4 += f"\n- {row['generic_name']}: เหลือ {int(row['qty'])} (เป้า: {int(row['min_stock'])})"
-            count += 1
-        if low_total > 10: msg_part4 += f"\n...และอื่นๆ อีก {low_total-10} รายการ"
-
+    # 🌟 4. แจ้งเตือนใกล้หมดอายุ
     msg_part5 = "\n\n⏰ แจ้งเตือน: ใกล้หมดอายุ (<90 วัน)"
     if not inv_df.empty:
         inv_active = inv_df[inv_df['qty'] > 0].copy()
@@ -294,7 +298,8 @@ def generate_monthly_executive_report():
                 count_exp = 0
                 for _, row in near_exp.iterrows():
                     if count_exp >= 10: break
-                    msg_part5 += f"\n- {row['generic_name']}\n  เหลือ {int(row['qty'])} | หมด: {row['exp_date'].strftime('%d/%m/%Y')}"
+                    exp_str = row['exp_date'].strftime('%d/%m/%Y')
+                    msg_part5 += f"\n- {row['generic_name']} (Lot: {row['lot_no']})\n  เหลือ {int(row['qty'])} | หมด: {exp_str}"
                     count_exp += 1
                 if len(near_exp) > 10: msg_part5 += f"\n...และอื่นๆ อีก {len(near_exp)-10} ล็อต"
             else: msg_part5 += "\n(ไม่มีรายการเสี่ยงหมดอายุ)"

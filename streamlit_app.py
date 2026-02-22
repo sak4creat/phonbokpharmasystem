@@ -292,7 +292,7 @@ else:
         if st.button("ออกจากระบบ", use_container_width=True): logout_user()
         st.divider()
 
-    menu_options = ["🖥️ แดชบอร์ด", "📥 รับเข้า (Receive)", "📤 เบิกจ่าย (Dispense)", "🧾 ประวัติรับ-จ่าย", "🗃️ สต๊อกการ์ด", "📊 สรุปยอด และ ขอเบิก", "📋 ข้อมูลยา (Master Data)"]
+    menu_options = ["🖥️ แดชบอร์ด", "📥 รับเข้า (Receive)", "📤 เบิกจ่าย (Dispense)", "🧾 ประวัติรับ-จ่าย", "🗃️ บัญชีคุมเวชภัณฑ์คงคลัง", "📊 สรุปยอด และ ขอเบิก", "📋 ข้อมูลยา (Master Data)"]
     if st.session_state.role == 'admin': menu_options.append("⚙️ จัดการระบบ (Admin)")
     menu = st.sidebar.radio("📌 เมนูหลัก", menu_options)
 
@@ -386,34 +386,42 @@ else:
                     
         with tab_line:
             st.subheader("⚙️ ตั้งค่าการส่งรายงานและเชื่อมต่อ LINE")
-            st.info("กำหนดวันที่และใส่ Token (ระบบจะบันทึกและยึดค่าที่กรอกครั้งล่าสุดเสมอ)")
+            st.info("กำหนดเวลาและใส่ Token (ระบบจะบันทึกและยึดค่าที่กรอกครั้งล่าสุดเสมอ)")
             
             # ดึงค่าเก่าจากฐานข้อมูลมาโชว์
             try:
                 set_res = supabase.table("settings").select("*").eq("id", 1).execute()
                 if set_res.data:
-                    current_day = int(set_res.data[0].get('report_day', 1))
-                    current_token = str(set_res.data[0].get('line_token', ''))
-                    current_target = str(set_res.data[0].get('line_target_id', ''))
+                    current_day = int(set_res.data[0].get('report_day') if set_res.data[0].get('report_day') is not None else 1)
+                    current_hour = int(set_res.data[0].get('report_hour') if set_res.data[0].get('report_hour') is not None else 10)
+                    current_token = str(set_res.data[0].get('line_token') if set_res.data[0].get('line_token') is not None else '')
+                    current_target = str(set_res.data[0].get('line_target_id') if set_res.data[0].get('line_target_id') is not None else '')
                 else:
-                    current_day, current_token, current_target = 1, "", ""
+                    current_day, current_hour, current_token, current_target = 1, 10, "", ""
             except:
-                current_day, current_token, current_target = 1, "", ""
+                current_day, current_hour, current_token, current_target = 1, 10, "", ""
                 
-            new_day = st.number_input("📅 กำหนดวันที่ต้องการให้ระบบส่งรายงานอัตโนมัติ (รายเดือน):", min_value=1, max_value=28, value=current_day, help="เลือกได้ตั้งแต่วันที่ 1 ถึง 28")
+            col_t1, col_t2 = st.columns(2)
+            with col_t1:
+                new_day = st.number_input("📅 วันที่ส่งรายงาน (รายเดือน):", min_value=1, max_value=28, value=current_day, help="เลือกได้ตั้งแต่วันที่ 1 ถึง 28")
+            with col_t2:
+                time_options = [f"{str(h).zfill(2)}:00 น." for h in range(0, 24)]
+                # ป้องกัน Error ถ้าค่า index เกิน 23
+                safe_hour_index = current_hour if 0 <= current_hour <= 23 else 10
+                selected_time_str = st.selectbox("⏰ เวลาที่ต้องการส่ง:", time_options, index=safe_hour_index)
+                new_hour = int(selected_time_str.split(":")[0])
             
-            st.markdown("<br>##### 📱 ตั้งค่า LINE Messaging API", unsafe_allow_html=True)
+            st.markdown("<br>##### 📱 ตั้งค่ารหัสผ่าน LINE Messaging API", unsafe_allow_html=True)
             line_token_input = st.text_input("1. LINE Channel Access Token", value=current_token, type="password")
             line_target_id = st.text_input("2. LINE User ID หรือ Group ID ปลายทาง", value=current_target, type="password")
             
             st.divider()
             
-            # จัดปุ่มเรียง ซ้าย - ขวา
+            # จัดปุ่มเรียง ซ้าย - ขวา ให้สมดุล
             col_btn_left, col_btn_right = st.columns(2)
             
             with col_btn_left:
                 if st.button("💾 บันทึกการตั้งค่า", use_container_width=True):
-                    # ถ้ามีการวางซ้ำๆ ดึงเอาคำล่าสุดมาใช้ (เพื่อความชัวร์)
                     clean_token = line_token_input.strip().split()[-1] if line_token_input.strip() else ""
                     clean_target = line_target_id.strip().split()[-1] if line_target_id.strip() else ""
                     
@@ -422,6 +430,7 @@ else:
                         if check.data:
                             supabase.table("settings").update({
                                 "report_day": new_day,
+                                "report_hour": new_hour,
                                 "line_token": clean_token,
                                 "line_target_id": clean_target
                             }).eq("id", 1).execute()
@@ -429,11 +438,12 @@ else:
                             supabase.table("settings").insert({
                                 "id": 1, 
                                 "report_day": new_day,
+                                "report_hour": new_hour,
                                 "line_token": clean_token,
                                 "line_target_id": clean_target
                             }).execute()
-                        st.success(f"✅ บันทึกข้อมูลเรียบร้อยแล้ว! (ยึดค่าที่กรอกล่าสุด)")
-                        time.sleep(1.5)
+                        st.success(f"✅ บันทึกข้อมูลเรียบร้อย! ระบบจะส่งอัตโนมัติทุกวันที่ {new_day} เวลา {str(new_hour).zfill(2)}:00 น.")
+                        time.sleep(2)
                         st.rerun()
                     except Exception as e:
                         st.error(f"❌ บันทึกไม่ได้: กรุณาไปรันคำสั่ง SQL เพื่อเพิ่มคอลัมน์ใน Supabase ก่อนครับ")
@@ -875,9 +885,9 @@ else:
         else: st.info("ยังไม่มีประวัติการทำรายการในระบบ")
 
     # ----------------------------------------------------------------------
-    # 🗃️ สต๊อกการ์ด
+    # 🗃️ บัญชีคุมเวชภัณฑ์คงคลัง (Stock Card)
     # ----------------------------------------------------------------------
-    elif menu == "🗃️ สต๊อกการ์ด":
+    elif menu == "🗃️ บัญชีคุมเวชภัณฑ์คงคลัง":
         st.header("🗃️ บัญชีคุมเวชภัณฑ์คงคลัง (Stock Card)")
         meds = get_medicines()
         if not meds.empty:

@@ -3,7 +3,16 @@ name: Send Monthly Report to LINE
 on:
   schedule:
     # ตั้งเวลาปลุก: นาทีที่ 0, ชั่วโมงที่ 3 (เวลาสากล UTC ซึ่งตรงกับ 10.00 น. เวลาไทย), วันที่ 1 ของเดือน
-   - cron: '0 3 * * *'
+   name: Send Monthly Report to LINE
+
+on:
+  schedule:
+    # ตั้งให้รันทุกๆ ชั่วโมง (นาทีที่ 0 ของทุกชั่วโมง)
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+# ... (โค้ดด้านล่างปล่อยไว้เหมือนเดิม)
   workflow_dispatch: # อนุญาตให้กดรันด้วยมือใน GitHub ได้ด้วย
 
 jobs:

@@ -190,7 +190,7 @@ def send_line_message(token, target_id, message):
     except Exception as e:
         return False
 
-# 🌟 ฟังก์ชันสร้างรายงานสรุป (ลอกลอจิกจาก Dashboard มาเป๊ะๆ 100%)
+# 🌟 ฟังก์ชันสร้างรายงานสรุป (อัปเดตระบบคำนวณตรงกับ Dashboard 100%)
 def generate_monthly_executive_report():
     today = datetime.date.today()
     first_day_of_this_month = today.replace(day=1)
@@ -201,31 +201,31 @@ def generate_monthly_executive_report():
     year_th = last_day_of_prev_month.year + 543
     report_title = f"📊 สรุปคลังเวชภัณฑ์ประจำเดือน {month_name} {year_th}"
 
-    # 1. ดึงข้อมูล Master Data และ Inventory แบบเดียวกับ Dashboard
     try:
-        meds_raw = supabase.table("medicines").select("id, generic_name, unit, min_stock, category").eq("is_active", True).execute().data
-        inv_raw = supabase.table("inventory").select("*").execute().data
-        trans_raw = supabase.table("transactions").select("*").gte("created_at", str(first_day_of_prev_month)).lt("created_at", str(first_day_of_this_month)).execute().data
-        
-        meds = pd.DataFrame(meds_raw)
-        inv_df = pd.DataFrame(inv_raw)
-        trans_df = pd.DataFrame(trans_raw)
+        meds_res = supabase.table("medicines").select("*").eq("is_active", True).execute()
+        meds = pd.DataFrame(meds_res.data)
+        inv_df = pd.DataFrame(supabase.table("inventory").select("*").execute().data)
+        trans_res = supabase.table("transactions").select("*").gte("created_at", str(first_day_of_prev_month)).lt("created_at", str(first_day_of_this_month)).execute()
+        trans_df = pd.DataFrame(trans_res.data)
     except Exception as e:
-        return f"เกิดข้อผิดพลาดในการดึงข้อมูลจากฐานข้อมูล: {e}"
+        return f"❌ เกิดข้อผิดพลาดการดึงข้อมูลจากฐานข้อมูล: {e}"
 
     if meds.empty:
-        return report_title + "\n\n❌ ไม่พบข้อมูลเวชภัณฑ์ในระบบ (Master Data ว่างเปล่า)"
+        msg_part1 = "\n\n❌ ไม่พบข้อมูล Master Data ในระบบ"
+        msg_part2 = "\n\n📥 รับเข้ามากที่สุด 5 อันดับ:\n(ไม่มีการเคลื่อนไหว)"
+        msg_part3 = "\n\n📤 เบิกจ่ายมากที่สุด 5 อันดับ:\n(ไม่มีการเคลื่อนไหว)"
+        msg_part4 = "\n\n⚠️ แจ้งเตือน: ต่ำกว่าจุดสั่งซื้อ\n(ไม่มีข้อมูล Master Data)"
+        msg_part5 = "\n\n⏰ แจ้งเตือน: ใกล้หมดอายุ (<90 วัน)\n(ไม่มีข้อมูลสต๊อก)"
+        return report_title + msg_part1 + msg_part2 + msg_part3 + msg_part4 + msg_part5
 
-    # ทำความสะอาดข้อมูลหมวดหมู่ (เผื่อมีการเว้นวรรคผิด)
     meds['category'] = meds['category'].astype(str).str.strip() 
     drugs_count = len(meds[meds['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
     supplies_count = len(meds[meds['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
-
     msg_part1 = f"\n\n🏥 ข้อมูล ณ ปัจจุบัน:\n- เวชภัณฑ์ยา: {drugs_count} รายการ\n- เวชภัณฑ์มิใช่ยา: {supplies_count} รายการ"
 
-    # 2. สรุปรับเข้า-เบิกจ่าย
     msg_part2 = "\n\n📥 รับเข้ามากที่สุด 5 อันดับ:"
     msg_part3 = "\n\n📤 เบิกจ่ายมากที่สุด 5 อันดับ:"
+    
     if not trans_df.empty:
         df_merged = pd.merge(trans_df, meds[['id', 'generic_name', 'unit']], left_on='medicine_id', right_on='id', how='left')
         
@@ -233,86 +233,70 @@ def generate_monthly_executive_report():
         df_recv = df_recv.sort_values(by='qty_change', ascending=False).head(5)
         if not df_recv.empty:
             for idx, row in df_recv.iterrows():
-                unit_val = meds[meds['generic_name'] == row['generic_name']]['unit'].values
-                unit = unit_val[0] if len(unit_val) > 0 else ''
+                unit_vals = meds[meds['generic_name'] == row['generic_name']]['unit'].values
+                unit = unit_vals[0] if len(unit_vals) > 0 else ''
                 msg_part2 += f"\n{idx+1}. {row['generic_name']} (+{int(row['qty_change'])} {unit})"
         else: msg_part2 += "\n(ไม่มีการเคลื่อนไหว)"
 
         df_disp = df_merged[df_merged['action_type'] == 'DISPENSE'].copy()
-        df_disp['qty_change'] = df_disp['qty_change'].abs() 
+        df_disp['qty_change'] = df_disp['qty_change'].abs()
         df_disp = df_disp.groupby('generic_name')['qty_change'].sum().reset_index()
         df_disp = df_disp.sort_values(by='qty_change', ascending=False).head(5)
         if not df_disp.empty:
             for idx, row in df_disp.iterrows():
-                unit_val = meds[meds['generic_name'] == row['generic_name']]['unit'].values
-                unit = unit_val[0] if len(unit_val) > 0 else ''
+                unit_vals = meds[meds['generic_name'] == row['generic_name']]['unit'].values
+                unit = unit_vals[0] if len(unit_vals) > 0 else ''
                 msg_part3 += f"\n{idx+1}. {row['generic_name']} (-{int(row['qty_change'])} {unit})"
         else: msg_part3 += "\n(ไม่มีการเคลื่อนไหว)"
     else:
         msg_part2 += "\n(ไม่มีการเคลื่อนไหว)"
         msg_part3 += "\n(ไม่มีการเคลื่อนไหว)"
 
-    # 3. 🌟 คำนวณต่ำกว่าจุดสั่งซื้อ (ลอกลอจิกจากหน้า Dashboard เป๊ะๆ)
     msg_part4 = "\n\n⚠️ แจ้งเตือน: ต่ำกว่าจุดสั่งซื้อ"
-    
     if not inv_df.empty:
         inv_agg = inv_df.groupby('medicine_id')['qty'].sum().reset_index()
-        df_dash = pd.merge(meds, inv_agg, left_on='id', right_on='medicine_id', how='left')
-        df_dash['qty'] = df_dash['qty'].fillna(0)
+        df_stock = pd.merge(meds, inv_agg, left_on='id', right_on='medicine_id', how='left')
+        df_stock['qty'] = df_stock['qty'].fillna(0)
     else:
-        df_dash = meds.copy()
-        df_dash['qty'] = 0
+        df_stock = meds.copy()
+        df_stock['qty'] = 0
         
-    # บังคับแปลงเป็นตัวเลขเพื่อป้องกัน Error ตอนเปรียบเทียบ
-    df_dash['qty'] = pd.to_numeric(df_dash['qty'], errors='coerce').fillna(0)
-    df_dash['min_stock'] = pd.to_numeric(df_dash['min_stock'], errors='coerce').fillna(0)
-    
-    # ดึงรายการที่ qty <= min_stock
-    low_stock = df_dash[df_dash['qty'] <= df_dash['min_stock']]
-    
+    df_stock['qty'] = pd.to_numeric(df_stock['qty'], errors='coerce').fillna(0)
+    df_stock['min_stock'] = pd.to_numeric(df_stock['min_stock'], errors='coerce').fillna(0)
+        
+    low_stock = df_stock[df_stock['qty'] <= df_stock['min_stock']]
     low_total = len(low_stock)
     low_drugs = len(low_stock[low_stock['category'].isin(['ยาในบัญชี', 'ยานอกบัญชี', 'เวชภัณฑ์ยา'])])
     low_supplies = len(low_stock[low_stock['category'].isin(['เวชภัณฑ์/วัสดุ', 'เวชภัณฑ์ที่มิใช่ยา'])])
 
     msg_part4 += f"\nรวมทั้งหมด {low_total} รายการ แบ่งเป็น:"
     msg_part4 += f"\n💊 เวชภัณฑ์ยา จำนวน {low_drugs} รายการ"
-    msg_part4 += f"\n📦 เวชภัณฑ์ที่มิใช่ยา จำนวน {low_supplies} รายการ\n"
+    msg_part4 += f"\n📦 เวชภัณฑ์ที่มิใช่ยา จำนวน {low_supplies} รายการ"
 
     if low_total > 0:
-        # เรียงลำดับจากเหลือ 0 ขึ้นไป
         low_stock = low_stock.sort_values(by='qty')
-        count_display = 0
+        count = 0
         for _, row in low_stock.iterrows():
-            if count_display >= 10:
-                break
+            if count >= 10: break
             msg_part4 += f"\n- {row['generic_name']}: เหลือ {int(row['qty'])} (เป้า: {int(row['min_stock'])})"
-            count_display += 1
-            
-        if low_total > 10:
-            msg_part4 += f"\n...และอื่นๆ อีก {low_total-10} รายการ"
-    else:
-        # ลบคำว่า สต๊อกเพียงพอ ออก ตามที่คุณสั่ง
-        pass
+            count += 1
+        if low_total > 10: msg_part4 += f"\n...และอื่นๆ อีก {low_total-10} รายการ"
 
-    # 4. แจ้งเตือนใกล้หมดอายุ
     msg_part5 = "\n\n⏰ แจ้งเตือน: ใกล้หมดอายุ (<90 วัน)"
     if not inv_df.empty:
         inv_active = inv_df[inv_df['qty'] > 0].copy()
         if not inv_active.empty:
             inv_active['exp_date'] = pd.to_datetime(inv_active['exp_date'])
             near_exp_raw = inv_active[inv_active['exp_date'] <= pd.to_datetime(today) + pd.Timedelta(days=90)]
-            
             if not near_exp_raw.empty:
                 near_exp = pd.merge(near_exp_raw, meds[['id', 'generic_name']], left_on='medicine_id', right_on='id', how='left')
                 msg_part5 += f" ({len(near_exp)} ล็อต)"
                 count_exp = 0
                 for _, row in near_exp.iterrows():
                     if count_exp >= 10: break
-                    exp_str = row['exp_date'].strftime('%d/%m/%Y')
-                    msg_part5 += f"\n- {row['generic_name']} (Lot: {row['lot_no']})\n  เหลือ {int(row['qty'])} | หมด: {exp_str}"
+                    msg_part5 += f"\n- {row['generic_name']}\n  เหลือ {int(row['qty'])} | หมด: {row['exp_date'].strftime('%d/%m/%Y')}"
                     count_exp += 1
-                if len(near_exp) > 10:
-                     msg_part5 += f"\n...และอื่นๆ อีก {len(near_exp)-10} ล็อต"
+                if len(near_exp) > 10: msg_part5 += f"\n...และอื่นๆ อีก {len(near_exp)-10} ล็อต"
             else: msg_part5 += "\n(ไม่มีรายการเสี่ยงหมดอายุ)"
         else: msg_part5 += "\n(ไม่มีรายการเสี่ยงหมดอายุ)"
     else: msg_part5 += "\n(ไม่มีข้อมูลสต๊อก)"
